@@ -40,7 +40,7 @@ jobs:
             exit 1
           fi
           echo "Runcard binary: $BIN"
-          "$BIN" 2>&1 | head -3
+          "$BIN" 2>&1 | head -3 || true
           echo "RUNCARD_BIN=$BIN" >> "$GITHUB_ENV"
 
       - name: Attested build of v2/
