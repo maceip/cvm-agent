@@ -43,13 +43,33 @@ jobs:
           "$BIN" 2>&1 | head -3 || true
           echo "RUNCARD_BIN=$BIN" >> "$GITHUB_ENV"
 
+      - name: Prepare Rust toolchain
+        run: |
+          set -euo pipefail
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          CARGO_BIN="$(command -v cargo || true)"
+          if [ -z "$CARGO_BIN" ] && [ -x "$HOME/.cargo/bin/cargo" ]; then
+            CARGO_BIN="$HOME/.cargo/bin/cargo"
+          fi
+          if [ -z "$CARGO_BIN" ]; then
+            echo "cargo was not found after toolchain setup"
+            exit 1
+          fi
+          "$CARGO_BIN" --version
+          echo "CARGO_BIN=$CARGO_BIN" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
+
       - name: Attested build of v2/
         run: |
           set -euo pipefail
           rm -rf attest-out
           mkdir -p attest-out
-          sudo "$RUNCARD_BIN" build v2 \
-            --cmd 'cargo build --release' \
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build v2 \
+            --cmd "$CARGO_BIN build --release" \
             --output "$GITHUB_WORKSPACE/attest-out"
           echo "--- output ---"
           ls -la attest-out/
