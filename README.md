@@ -7,10 +7,8 @@ power, it should be able to ask one practical question:
 
 > Is this live thing really the reviewed source it claims to be?
 
-This repo is still named `bountynet-genesis`, and the current binary is still
-`bountynet` until the rename lands. The product language is now Runcard: a
-small proof card that apps and workflows can verify before releasing secrets,
-tokens, deploy rights, filesystem access, or customer data.
+Runcard is a small proof card that apps and workflows can verify before
+releasing secrets, tokens, deploy rights, filesystem access, or customer data.
 
 ![Runcard verified badge](docs/assets/runcard-badge.svg)
 
@@ -98,7 +96,7 @@ Drop one step into CI and receive `proof-receipt.json` plus the raw
 `attestation.cbor` evidence.
 
 ```yaml
-- uses: maceip/bountynet-genesis/v2/action@main
+- uses: maceip/runcards/v2/action@main
   with:
     source: .
     cmd: npm test && npm run build
@@ -109,16 +107,6 @@ checked-out workspace to a short-lived shadow build service. See
 [`v2/SHADOW.md`](v2/SHADOW.md).
 
 ### Policy Gate
-
-Current CLI name:
-
-```bash
-bountynet gate \
-  --receipt ./proof-receipt.json \
-  --policy .runcard.yml
-```
-
-Target CLI name after the rename:
 
 ```bash
 runcard gate \
@@ -191,15 +179,15 @@ reports currently require live AMD KDS access.
 ## Quick Start
 
 ```bash
-git clone https://github.com/maceip/bountynet-genesis
-cd bountynet-genesis/v2
+git clone https://github.com/maceip/runcards
+cd runcards/v2
 cargo test
 ```
 
 Run an attested build inside a TEE:
 
 ```bash
-sudo ./target/release/bountynet build /path/to/source \
+sudo ./target/release/runcard build /path/to/source \
   --cmd "your build command" \
   --output ./attest-out
 ```
@@ -207,14 +195,14 @@ sudo ./target/release/bountynet build /path/to/source \
 Run an attested service:
 
 ```bash
-sudo ./target/release/bountynet run /path/to/source \
+sudo ./target/release/runcard run /path/to/source \
   --attestation ./attest-out/attestation.cbor
 ```
 
 Verify it from any machine:
 
 ```bash
-./target/release/bountynet check https://<domain>/
+./target/release/runcard check https://<domain>/
 ```
 
 ## Repo Map

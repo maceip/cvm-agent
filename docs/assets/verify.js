@@ -1,13 +1,14 @@
-// bountynet-genesis: in-browser Value X verifier.
+// Runcard: in-browser Value X verifier for this repo.
 //
 // Mirrors the algorithm in v2/src/main.rs::compute_tree_hash + collect_hashes,
 // which is the version that actually runs inside the TDX runner during
-// `bountynet build`. Pure JavaScript, no WASM, no external libraries. Uses:
+// the current build command. Pure JavaScript, no WASM, no external
+// libraries. Uses:
 //   - GitHub REST API         → enumerate a commit tree (one request).
 //   - raw.githubusercontent.com → fetch each blob (no API rate limit).
 //   - crypto.subtle.digest('SHA-384', …) → native browser sha-384.
 //
-// This is not a simulation. It is the same pipeline `bountynet run` uses
+// This is not a simulation. It is the same pipeline the runtime uses
 // when it re-computes Value X at boot against its frozen source tree. The
 // only thing missing from a full verify is parsing a TEE quote — that needs
 // vendor-specific ECDSA libraries and is tracked as a follow-up.
@@ -24,8 +25,8 @@
   // --------------------------------------------------------------------------
   // Config — these mirror v2's compute_tree_hash / collect_hashes
   // --------------------------------------------------------------------------
-  const REPO = "maceip/bountynet-genesis";
-  // The directory `bountynet build` hashes is whatever you pass as
+  const REPO = "maceip/runcards";
+  // The directory the build hashes is whatever you pass as
   // <source-dir>. The ouroboros run used `v2`, so that's our default — it
   // reproduces the signed Value X when walked at the right commit.
   const DEFAULT_PATH = "v2";
