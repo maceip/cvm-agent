@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 description = "Attested builds: source → artifact, proven by hardware"
 
+[[bin]]
+name = "runcard"
+path = "src/main.rs"
+
+[[bin]]
+name = "bountynet"
+path = "src/main.rs"
+
 [features]
 default = ["nitro", "sev-snp", "tdx"]
 nitro = ["dep:serde_cbor", "dep:aws-nitro-enclaves-nsm-api", "dep:rsa", "dep:aes", "dep:cbc"]

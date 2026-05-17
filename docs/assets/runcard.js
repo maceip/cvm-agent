@@ -5,12 +5,16 @@
 
   const initTabs = () => {
     $$("[data-tab]").forEach((tab) => {
-      tab.addEventListener("click", () => {
+      tab.tabIndex = tab.getAttribute("aria-selected") === "true" ? 0 : -1;
+
+      const activate = () => {
         const owner = tab.closest('[is-~="tabs"]') || document;
         const target = tab.dataset.tab;
 
         $$("[data-tab]", owner).forEach((item) => {
-          item.setAttribute("aria-selected", String(item === tab));
+          const selected = item === tab;
+          item.setAttribute("aria-selected", String(selected));
+          item.tabIndex = selected ? 0 : -1;
         });
 
         $$("[data-panel]", owner).forEach((panel) => {
@@ -18,6 +22,26 @@
           panel.hidden = !active;
           panel.classList.toggle("is-active", active);
         });
+      };
+
+      tab.addEventListener("click", activate);
+      tab.addEventListener("keydown", (event) => {
+        const owner = tab.closest('[is-~="tabs"]') || document;
+        const tabs = $$("[data-tab]", owner);
+        const index = tabs.indexOf(tab);
+        const keyMap = {
+          ArrowLeft: index - 1,
+          ArrowRight: index + 1,
+          Home: 0,
+          End: tabs.length - 1
+        };
+
+        if (!(event.key in keyMap)) return;
+
+        event.preventDefault();
+        const nextIndex = (keyMap[event.key] + tabs.length) % tabs.length;
+        tabs[nextIndex].focus();
+        tabs[nextIndex].click();
       });
     });
   };

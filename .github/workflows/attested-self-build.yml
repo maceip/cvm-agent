@@ -1,9 +1,9 @@
 name: Attested self-build (the ouroboros)
 
-# This workflow is the load-bearing one: bountynet builds itself
+# This workflow is the load-bearing one: Runcard builds itself
 # inside a TEE and produces a hardware attestation of its own source
 # tree. The runner is a GCP TDX instance registered as a self-hosted
-# runner for this repo. Any future release of bountynet is provably
+# runner for this repo. Any future release of Runcard is provably
 # an attested build of a known Value X, signed by the Intel TDX
 # module and verifiable end-to-end.
 #
@@ -29,20 +29,26 @@ jobs:
 
       - name: Confirm runner is inside a TEE
         run: |
+          set -euo pipefail
           echo "Runner identity:"
           uname -a
           echo "TEE device probe:"
           ls -la /dev/tdx_guest /sys/kernel/config/tsm/report 2>&1 || true
-          echo "bountynet binary:"
-          which bountynet
-          bountynet 2>&1 | head -3
+          BIN="$(command -v runcard || command -v bountynet || true)"
+          if [ -z "$BIN" ]; then
+            echo "No runcard or legacy bountynet binary on runner"
+            exit 1
+          fi
+          echo "Runcard binary: $BIN"
+          "$BIN" 2>&1 | head -3
+          echo "RUNCARD_BIN=$BIN" >> "$GITHUB_ENV"
 
       - name: Attested build of v2/
         run: |
-          set -e
+          set -euo pipefail
           rm -rf attest-out
           mkdir -p attest-out
-          sudo bountynet build v2 \
+          sudo "$RUNCARD_BIN" build v2 \
             --cmd 'cargo build --release' \
             --output "$GITHUB_WORKSPACE/attest-out"
           echo "--- output ---"

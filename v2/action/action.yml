@@ -1,5 +1,5 @@
-name: 'bountynet build'
-description: 'Attested build inside a TEE. Produces a hardware-signed proof that this source became this artifact.'
+name: 'runcard build'
+description: 'Attested build inside a TEE. Produces a hardware-signed receipt that this source became this artifact.'
 author: 'maceip'
 
 inputs:
@@ -13,11 +13,11 @@ inputs:
   output:
     description: 'Output directory for attestation + artifact'
     required: false
-    default: './bountynet-out'
+    default: './runcard-out'
 
 outputs:
   value_x:
-    description: 'Value X — the portable identity hash (sha384)'
+    description: 'Value X, the portable identity hash (sha384)'
   attestation:
     description: 'Path to attestation.json'
   platform:
@@ -28,43 +28,45 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Install bountynet
+    - name: Install runcard
       shell: bash
       run: |
-        if ! command -v bountynet &>/dev/null; then
-          echo "Installing bountynet..."
-          curl -sSfL https://github.com/maceip/bountynet-genesis/releases/latest/download/bountynet-linux-x86_64 -o /usr/local/bin/bountynet || {
-            echo "No prebuilt binary. Building from source..."
-            cd ${{ github.action_path }}/..
-            cargo build --release --manifest-path v2/Cargo.toml
-            cp v2/target/release/bountynet /usr/local/bin/bountynet
+        set -euo pipefail
+
+        if ! command -v runcard &>/dev/null; then
+          echo "Installing runcard..."
+          curl -sSfL https://github.com/maceip/runcards/releases/latest/download/runcard-linux-x86_64 -o /usr/local/bin/runcard || {
+            echo "No prebuilt binary. Building runcard from source..."
+            ACTION_ROOT="${{ github.action_path }}/.."
+            cargo build --release --manifest-path "$ACTION_ROOT/Cargo.toml" --bin runcard
+            cp "$ACTION_ROOT/target/release/runcard" /usr/local/bin/runcard
           }
-          chmod +x /usr/local/bin/bountynet
+          chmod +x /usr/local/bin/runcard
         fi
-        bountynet 2>&1 | head -1
+        runcard 2>&1 | head -1
 
     - name: Attested build
       shell: bash
       id: build
       env:
-        BOUNTYNET_SOURCE: ${{ inputs.source }}
-        BOUNTYNET_CMD: ${{ inputs.cmd }}
-        BOUNTYNET_OUTPUT: ${{ inputs.output }}
+        RUNCARD_SOURCE: ${{ inputs.source }}
+        RUNCARD_CMD: ${{ inputs.cmd }}
+        RUNCARD_OUTPUT: ${{ inputs.output }}
       run: |
         set -euo pipefail
 
-        OUTPUT="$BOUNTYNET_OUTPUT"
+        OUTPUT="$RUNCARD_OUTPUT"
         mkdir -p "$OUTPUT"
 
-        ARGS=(build "$BOUNTYNET_SOURCE" --output "$OUTPUT")
-        if [ -n "$BOUNTYNET_CMD" ]; then
-          ARGS+=(--cmd "$BOUNTYNET_CMD")
+        ARGS=(build "$RUNCARD_SOURCE" --output "$OUTPUT")
+        if [ -n "$RUNCARD_CMD" ]; then
+          ARGS+=(--cmd "$RUNCARD_CMD")
         fi
 
-        printf 'Running: bountynet'
+        printf 'Running: runcard'
         printf ' %q' "${ARGS[@]}"
         printf '\n'
-        bountynet "${ARGS[@]}"
+        runcard "${ARGS[@]}"
 
         # Parse attestation for outputs
         if [ -f "$OUTPUT/attestation.json" ]; then
@@ -78,7 +80,7 @@ runs:
           echo "platform=$PLATFORM" >> $GITHUB_OUTPUT
           echo "domain=$DOMAIN" >> $GITHUB_OUTPUT
 
-          echo "### Attested Build" >> $GITHUB_STEP_SUMMARY
+          echo "### Runcard attested build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY

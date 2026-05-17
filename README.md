@@ -10,7 +10,7 @@ power, it should be able to ask one practical question:
 Runcard is a small proof card that apps and workflows can verify before
 releasing secrets, tokens, deploy rights, filesystem access, or customer data.
 
-![Runcard verified badge](docs/assets/runcard-badge.svg)
+![Runcard verified badge](docs/assets/runcard-card.svg)
 
 ```ts
 const verdict = await runcard.verify("https://agent.example.com", {
@@ -102,9 +102,10 @@ Drop one step into CI and receive `proof-receipt.json` plus the raw
     cmd: npm test && npm run build
 ```
 
-Near-term goal: make this work without the user owning a TEE by sending the
-checked-out workspace to a short-lived shadow build service. See
-[`v2/SHADOW.md`](v2/SHADOW.md).
+Today this wrapper expects a TEE-capable runner. The mass-market path should not
+ask an app team to own that runner; it should send the checked-out workspace or
+artifact digest to a short-lived shadow build service and return the receipt to
+the normal GitHub job. See [`v2/SHADOW.md`](v2/SHADOW.md).
 
 ### Policy Gate
 
@@ -178,13 +179,16 @@ reports currently require live AMD KDS access.
 
 ## Quick Start
 
+You need Rust installed to build the current engine locally.
+
 ```bash
 git clone https://github.com/maceip/runcards
 cd runcards/v2
+cargo build --release --bin runcard
 cargo test
 ```
 
-Run an attested build inside a TEE:
+Run an attested build inside a TEE-capable host:
 
 ```bash
 sudo ./target/release/runcard build /path/to/source \
@@ -204,6 +208,22 @@ Verify it from any machine:
 ```bash
 ./target/release/runcard check https://<domain>/
 ```
+
+## OpenClaw-Style Use
+
+For a modern agentic app, the useful boundary is not "this binary is signed."
+It is:
+
+1. Build the app, tool server, package, or release artifact.
+2. Get a Runcard receipt for the source and artifact.
+3. Gate secrets, publish rights, deploy rights, or live tool access on that
+   receipt.
+4. Show the card in the PR, release page, package page, or service health view.
+
+That flow should be usable from an ordinary GitHub-hosted job. The current
+repository has the cryptographic pieces, but the next product cut is the
+developer path: `proof-receipt.json`, `runcard gate`, check summaries, and a
+hosted shadow receipt option for teams that do not run their own TEE hardware.
 
 ## Repo Map
 

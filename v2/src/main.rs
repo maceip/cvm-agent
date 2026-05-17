@@ -1,4 +1,4 @@
-//! bountynet: attested builds and runtime.
+//! runcard: attested builds and runtime.
 //!
 //! See CONSTITUTION.md.
 //!
@@ -11,8 +11,8 @@
 //!            Value X proves the output matches expectations
 //!
 //! Usage:
-//!   bountynet build <source-dir> [--cmd "cargo build --release"] [--output ./out]
-//!   bountynet verify <attestation.json>
+//!   runcard build <source-dir> [--cmd "cargo build --release"] [--output ./out]
+//!   runcard verify <attestation.json>
 //!
 //! The build subcommand:
 //!   1. Verifies it's running inside a TEE (refuses to run otherwise)
@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
                 Err(_) => {
                     // Tokio failed (likely inside a Nitro Enclave).
                     // Fall back to synchronous vsock-only path.
-                    eprintln!("[bountynet] Async runtime unavailable, using sync mode");
+                    eprintln!("[runcard] Async runtime unavailable, using sync mode");
                     cmd_run_sync(&args[2..])
                 }
             }
@@ -80,16 +80,25 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn print_usage() {
-    eprintln!("bountynet — attested builds and runtime");
+    let bin = cli_name();
+    eprintln!("{bin} — attested builds and runtime");
     eprintln!();
     eprintln!("Usage:");
-    eprintln!("  bountynet build   <source-dir> [--cmd \"...\"] [--output ./out]");
-    eprintln!("  bountynet verify  <attestation.json> [--source-dir <dir>] [--artifact <path>]");
-    eprintln!("  bountynet check   https://<domain>   (fetch + verify from a running enclave)");
-    eprintln!("  bountynet run     <dir> --attestation <attestation.json> [--cmd \"...\"]");
-    eprintln!("  bountynet enclave <source-dir> [--cmd \"...\"]  (Nitro: build+serve in one)");
-    eprintln!("  bountynet proxy   --cid <enclave-cid> [--acme]  (parent: TCP:443 → vsock + ACME)");
-    eprintln!("  bountynet merge   <att1.json> <att2.json> [...] --output merged.json");
+    eprintln!("  {bin} build   <source-dir> [--cmd \"...\"] [--output ./out]");
+    eprintln!("  {bin} verify  <attestation.json> [--source-dir <dir>] [--artifact <path>]");
+    eprintln!("  {bin} check   https://<domain>   (fetch + verify from a running enclave)");
+    eprintln!("  {bin} run     <dir> --attestation <attestation.json> [--cmd \"...\"]");
+    eprintln!("  {bin} enclave <source-dir> [--cmd \"...\"]  (Nitro: build+serve in one)");
+    eprintln!("  {bin} proxy   --cid <enclave-cid> [--acme]  (parent: TCP:443 → vsock + ACME)");
+    eprintln!("  {bin} merge   <att1.json> <att2.json> [...] --output merged.json");
+}
+
+fn cli_name() -> String {
+    std::env::args()
+        .next()
+        .and_then(|arg| Path::new(&arg).file_stem().map(|stem| stem.to_owned()))
+        .and_then(|stem| stem.to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "runcard".to_string())
 }
 
 /// TCP-to-vsock proxy. Runs on the parent instance.
@@ -126,22 +135,22 @@ fn cmd_proxy(args: &[String]) -> anyhow::Result<()> {
 
     let cid = cid.ok_or_else(|| anyhow::anyhow!("--cid <enclave-cid> required"))?;
 
-    eprintln!("[bountynet] Proxy: TCP:{port} → enclave CID {cid}");
+    eprintln!("[runcard] Proxy: TCP:{port} → enclave CID {cid}");
     eprintln!(
-        "[bountynet] TLS terminates inside the enclave. This proxy only sees encrypted bytes."
+        "[runcard] TLS terminates inside the enclave. This proxy only sees encrypted bytes."
     );
 
     if acme {
         let proxy_port = port;
         std::thread::spawn(move || {
             // Wait for proxy + enclave to be ready
-            eprintln!("[bountynet/acme] Waiting for enclave...");
+            eprintln!("[runcard/acme] Waiting for enclave...");
             std::thread::sleep(std::time::Duration::from_secs(5));
 
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
                 Err(e) => {
-                    eprintln!("[bountynet/acme] Failed to create async runtime: {e}");
+                    eprintln!("[runcard/acme] Failed to create async runtime: {e}");
                     return;
                 }
             };
@@ -162,17 +171,17 @@ fn cmd_proxy(args: &[String]) -> anyhow::Result<()> {
                         Ok(body) => match serde_json::from_str(&body) {
                             Ok(j) => j,
                             Err(e) => {
-                                eprintln!("[bountynet/acme] Failed to parse attestation: {e}");
+                                eprintln!("[runcard/acme] Failed to parse attestation: {e}");
                                 return;
                             }
                         },
                         Err(e) => {
-                            eprintln!("[bountynet/acme] Failed to read response: {e}");
+                            eprintln!("[runcard/acme] Failed to read response: {e}");
                             return;
                         }
                     },
                     Err(e) => {
-                        eprintln!("[bountynet/acme] Enclave not reachable: {e}");
+                        eprintln!("[runcard/acme] Enclave not reachable: {e}");
                         return;
                     }
                 };
@@ -180,22 +189,22 @@ fn cmd_proxy(args: &[String]) -> anyhow::Result<()> {
                 let domain = match att["domain"].as_str() {
                     Some(d) => d.to_string(),
                     None => {
-                        eprintln!("[bountynet/acme] No domain in attestation");
+                        eprintln!("[runcard/acme] No domain in attestation");
                         return;
                     }
                 };
 
-                eprintln!("[bountynet/acme] Domain: {domain}");
+                eprintln!("[runcard/acme] Domain: {domain}");
 
                 match net::acme::provision_cert_for_enclave(&domain, &enclave_url, acme_staging)
                     .await
                 {
                     Ok(()) => {
-                        eprintln!("[bountynet/acme] === ACME COMPLETE ===");
-                        eprintln!("[bountynet/acme] https://{domain} is now valid TLS");
+                        eprintln!("[runcard/acme] === ACME COMPLETE ===");
+                        eprintln!("[runcard/acme] https://{domain} is now valid TLS");
                     }
                     Err(e) => {
-                        eprintln!("[bountynet/acme] FAILED: {e}");
+                        eprintln!("[runcard/acme] FAILED: {e}");
                     }
                 }
             });
@@ -238,7 +247,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
 
     // --- Step 1: Verify TEE ---
     // CONSTITUTION: "It must be computed inside a TEE. Not on a developer's laptop."
-    eprintln!("[bountynet] Detecting TEE...");
+    eprintln!("[runcard] Detecting TEE...");
     let tee_provider = tee::detect::detect_tee().map_err(|e| {
         anyhow::anyhow!(
             "No TEE detected: {e}\n\
@@ -246,14 +255,14 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
              This binary refuses to produce attestations outside a TEE."
         )
     })?;
-    eprintln!("[bountynet] TEE: {:?}", tee_provider.platform());
+    eprintln!("[runcard] TEE: {:?}", tee_provider.platform());
 
     // --- Step 2: RATCHET — Lock source hash before building ---
     // Attestable Containers paper: CT is computed and locked before any
     // untrusted code runs. After this point, the source cannot change.
-    eprintln!("[bountynet] Computing source hash (CT)...");
+    eprintln!("[runcard] Computing source hash (CT)...");
     let ct = compute_tree_hash(&source_dir)?;
-    eprintln!("[bountynet] CT = {}", hex::encode(ct));
+    eprintln!("[runcard] CT = {}", hex::encode(ct));
 
     // RATCHET: copy source to a read-only snapshot.
     // The build runs against the snapshot, not the original directory.
@@ -261,7 +270,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     let build_workspace = tempdir()?;
     let frozen_source = build_workspace.join("src");
     copy_dir_readonly(&source_dir, &frozen_source)?;
-    eprintln!("[bountynet] Source frozen: {}", frozen_source.display());
+    eprintln!("[runcard] Source frozen: {}", frozen_source.display());
 
     // Verify the frozen copy matches CT (paranoia: catch copy corruption)
     let ct_verify = compute_tree_hash(&frozen_source)?;
@@ -294,7 +303,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     if is_cargo && !custom_cmd {
         // Rust: fetch deps into a local vendor directory, then build offline.
         // This ensures all dependencies are captured in the hash.
-        eprintln!("[bountynet] Fetching Rust dependencies...");
+        eprintln!("[runcard] Fetching Rust dependencies...");
         let fetch_status = std::process::Command::new("cargo")
             .args(["fetch"])
             .current_dir(&frozen_source)
@@ -307,12 +316,12 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
 
         // Hash the dependency cache
         let dt = compute_tree_hash(&dep_cache)?;
-        eprintln!("[bountynet] DT (dependency hash): {}", hex::encode(dt));
+        eprintln!("[runcard] DT (dependency hash): {}", hex::encode(dt));
         // DT is included in the attestation output (see step 8)
     }
 
     // --- Step 4: Build (compilation phase) ---
-    eprintln!("[bountynet] Building with: {cmd}");
+    eprintln!("[runcard] Building with: {cmd}");
 
     let status = std::process::Command::new("sh")
         .arg("-c")
@@ -337,13 +346,13 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
             hex::encode(ct_post)
         );
     }
-    eprintln!("[bountynet] Ratchet verified: source unchanged after build");
+    eprintln!("[runcard] Ratchet verified: source unchanged after build");
 
     // Hash dependencies — LATTE L5: build deps are now measured.
     let dt: Option<[u8; 48]> = if dep_cache.exists() {
         match compute_tree_hash(&dep_cache) {
             Ok(h) if h != [0u8; 48] => {
-                eprintln!("[bountynet] DT (dependencies): {}", hex::encode(h));
+                eprintln!("[runcard] DT (dependencies): {}", hex::encode(h));
                 Some(h)
             }
             _ => None,
@@ -353,7 +362,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     };
 
     // --- Step 4: Compute artifact hash ---
-    eprintln!("[bountynet] Computing artifact hash (A)...");
+    eprintln!("[runcard] Computing artifact hash (A)...");
     let artifact_path = find_artifact(&build_output, &frozen_source);
     let (a, artifact_bytes): ([u8; 48], Vec<u8>) = if artifact_path.is_file() {
         let bytes = std::fs::read(&artifact_path)?;
@@ -364,14 +373,14 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
         let hash = compute_tree_hash(&build_output)?;
         (hash, Vec::new())
     };
-    eprintln!("[bountynet] A = {}", hex::encode(a));
+    eprintln!("[runcard] A = {}", hex::encode(a));
 
     // --- Step 5: Compute Value X ---
     // CONSTITUTION: "Value X is a single number that represents 'this exact software.'"
     // LATTE: application layer identity, deterministic across platforms.
-    eprintln!("[bountynet] Computing Value X...");
+    eprintln!("[runcard] Computing Value X...");
     let value_x = compute_tree_hash(&frozen_source)?;
-    eprintln!("[bountynet] X = {}", hex::encode(value_x));
+    eprintln!("[runcard] X = {}", hex::encode(value_x));
 
     // --- Step 6: Collect TEE quote ---
     //
@@ -404,7 +413,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     // they set it before collecting the quote.
 
     let binding: [u8; 32] = eat.binding_bytes();
-    eprintln!("[bountynet] EAT binding: {}", hex::encode(binding));
+    eprintln!("[runcard] EAT binding: {}", hex::encode(binding));
 
     let mut report_data = [0u8; 64];
     report_data[..32].copy_from_slice(&binding);
@@ -418,15 +427,15 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
         if tee_provider.platform() == quote::Platform::SevSnp && tee::tpm::tpm_available() {
             match tee::tpm::collect_tpm_attestation(&binding) {
                 Ok(att) => {
-                    eprintln!("[bountynet] NitroTPM: {} ", att.method);
-                    eprintln!("[bountynet] NitroTPM digest: {}", hex::encode(att.digest));
+                    eprintln!("[runcard] NitroTPM: {} ", att.method);
+                    eprintln!("[runcard] NitroTPM digest: {}", hex::encode(att.digest));
                     for (i, pcr) in att.pcrs.iter().enumerate() {
-                        eprintln!("[bountynet]   PCR{i}: {}", hex::encode(pcr));
+                        eprintln!("[runcard]   PCR{i}: {}", hex::encode(pcr));
                     }
                     Some(att)
                 }
                 Err(e) => {
-                    eprintln!("[bountynet] WARNING: NitroTPM collection failed: {e}");
+                    eprintln!("[runcard] WARNING: NitroTPM collection failed: {e}");
                     None
                 }
             }
@@ -434,10 +443,10 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
             None
         };
 
-    eprintln!("[bountynet] Collecting TEE attestation...");
+    eprintln!("[runcard] Collecting TEE attestation...");
     let evidence = tee_provider.collect_evidence(&report_data)?;
     eprintln!(
-        "[bountynet] Quote collected: {} bytes from {:?}",
+        "[runcard] Quote collected: {} bytes from {:?}",
         evidence.raw_quote.len(),
         evidence.platform
     );
@@ -448,9 +457,9 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     let platform_measurement =
         extract_platform_measurement(&evidence.raw_quote, &evidence.platform);
     if let Some(ref m) = platform_measurement {
-        eprintln!("[bountynet] Platform measurement: {}", hex::encode(m));
+        eprintln!("[runcard] Platform measurement: {}", hex::encode(m));
     } else {
-        eprintln!("[bountynet] WARNING: could not extract platform measurement from quote");
+        eprintln!("[runcard] WARNING: could not extract platform measurement from quote");
     }
 
     // Fill the EAT with the collected quote + measurement.
@@ -586,7 +595,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     let eat_path = output_dir.join("attestation.cbor");
     std::fs::write(&eat_path, &eat_cbor)?;
     eprintln!(
-        "[bountynet] EAT (CBOR): {} bytes → {}",
+        "[runcard] EAT (CBOR): {} bytes → {}",
         eat_cbor.len(),
         eat_path.display()
     );
@@ -609,25 +618,25 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     // Verifiers check: this attestation exists in the commit history.
     let log_committed = append_to_log(&output_dir, &att_path, &value_x);
     if log_committed {
-        eprintln!("[bountynet] Transparency log: attestation committed to git");
+        eprintln!("[runcard] Transparency log: attestation committed to git");
     } else {
         eprintln!(
-            "[bountynet] Transparency log: no git repo found (attestation written to disk only)"
+            "[runcard] Transparency log: no git repo found (attestation written to disk only)"
         );
     }
 
     eprintln!();
-    eprintln!("[bountynet] === Attested Build Complete ===");
-    eprintln!("[bountynet] CT (source):   {}", hex::encode(ct));
+    eprintln!("[runcard] === Attested Build Complete ===");
+    eprintln!("[runcard] CT (source):   {}", hex::encode(ct));
     if let Some(ref d) = dt {
-        eprintln!("[bountynet] DT (deps):     {}", hex::encode(d));
+        eprintln!("[runcard] DT (deps):     {}", hex::encode(d));
     }
-    eprintln!("[bountynet] A  (artifact): {}", hex::encode(a));
-    eprintln!("[bountynet] X  (value x):  {}", hex::encode(value_x));
-    eprintln!("[bountynet] Platform:      {:?}", evidence.platform);
-    eprintln!("[bountynet] Output:        {}", output_dir.display());
+    eprintln!("[runcard] A  (artifact): {}", hex::encode(a));
+    eprintln!("[runcard] X  (value x):  {}", hex::encode(value_x));
+    eprintln!("[runcard] Platform:      {:?}", evidence.platform);
+    eprintln!("[runcard] Output:        {}", output_dir.display());
     eprintln!();
-    eprintln!("[bountynet] This source became this artifact, inside genuine hardware.");
+    eprintln!("[runcard] This source became this artifact, inside genuine hardware.");
 
     Ok(())
 }
@@ -636,7 +645,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
 // VERIFY — anyone can run this, no TEE needed
 // ============================================================================
 
-/// `bountynet check https://<domain>`
+/// `runcard check https://<domain>`
 ///
 /// Performs a full attested-TLS verification against a live enclave:
 ///
@@ -661,7 +670,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     let url = args
         .iter()
         .find(|a| !a.starts_with("--"))
-        .ok_or_else(|| anyhow::anyhow!("Usage: bountynet check https://<domain>"))?;
+        .ok_or_else(|| anyhow::anyhow!("Usage: runcard check https://<domain>"))?;
 
     // Parse out host + port
     let stripped = url.strip_prefix("https://").unwrap_or(url.as_str());
@@ -673,8 +682,8 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(443)))
     .unwrap_or_else(|| (stripped.split('/').next().unwrap().to_string(), 443));
 
-    eprintln!("[bountynet] === attested-TLS check ===");
-    eprintln!("[bountynet] Target: {host}:{port}");
+    eprintln!("[runcard] === attested-TLS check ===");
+    eprintln!("[runcard] Target: {host}:{port}");
 
     // Install ring crypto provider if not already
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -712,7 +721,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
         .first()
         .ok_or_else(|| anyhow::anyhow!("empty peer cert chain"))?;
     let leaf_der = leaf.as_ref().to_vec();
-    eprintln!("[bountynet] Leaf cert: {} bytes DER", leaf_der.len());
+    eprintln!("[runcard] Leaf cert: {} bytes DER", leaf_der.len());
 
     // Extract the CMW extension
     let eat_cbor = net::attested_tls::extract_eat_from_cert(&leaf_der)?.ok_or_else(|| {
@@ -721,14 +730,14 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
              this endpoint is not attested-TLS aware"
         )
     })?;
-    eprintln!("[bountynet] EAT extension: {} bytes", eat_cbor.len());
+    eprintln!("[runcard] EAT extension: {} bytes", eat_cbor.len());
 
     // Decode
     let eat =
         eat::EatToken::from_cbor(&eat_cbor).map_err(|e| anyhow::anyhow!("EAT decode: {e}"))?;
-    eprintln!("[bountynet] EAT profile: {}", eat.eat_profile);
-    eprintln!("[bountynet] Platform:    {:?}", eat.platform_enum());
-    eprintln!("[bountynet] Value X:     {}", hex::encode(eat.value_x));
+    eprintln!("[runcard] EAT profile: {}", eat.eat_profile);
+    eprintln!("[runcard] Platform:    {:?}", eat.platform_enum());
+    eprintln!("[runcard] Value X:     {}", hex::encode(eat.value_x));
 
     let platform = eat
         .platform_enum()
@@ -739,18 +748,18 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     // not the one the TEE produced — MITM or relay.
     let actual_spki_hash = net::attested_tls::spki_hash_of_cert(&leaf_der)?;
     if actual_spki_hash != eat.tls_spki_hash {
-        eprintln!("[bountynet] SPKI binding:    FAIL");
+        eprintln!("[runcard] SPKI binding:    FAIL");
         eprintln!(
-            "[bountynet]   eat claim:     {}",
+            "[runcard]   eat claim:     {}",
             hex::encode(eat.tls_spki_hash)
         );
         eprintln!(
-            "[bountynet]   cert actual:   {}",
+            "[runcard]   cert actual:   {}",
             hex::encode(actual_spki_hash)
         );
         anyhow::bail!("attested-TLS channel binding failed");
     }
-    eprintln!("[bountynet] SPKI binding:    PASS");
+    eprintln!("[runcard] SPKI binding:    PASS");
 
     // --- Check: platform quote signature chain + binding ---
     //
@@ -767,17 +776,17 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     // whose report_data is a CBOR field, not a byte offset.
     let binding = eat.binding_bytes();
     let quote = &eat.platform_quote;
-    eprintln!("[bountynet] Verifying platform quote (binding + signature)...");
+    eprintln!("[runcard] Verifying platform quote (binding + signature)...");
     match quote::verify::verify_platform_quote(platform, quote, &binding) {
         Ok(measurements) => {
-            eprintln!("[bountynet] Quote binding:   PASS");
-            eprintln!("[bountynet] Quote signature: PASS");
+            eprintln!("[runcard] Quote binding:   PASS");
+            eprintln!("[runcard] Quote signature: PASS");
             for (name, val) in &measurements {
-                eprintln!("[bountynet]   {}: {}", name, hex::encode(val));
+                eprintln!("[runcard]   {}: {}", name, hex::encode(val));
             }
         }
         Err(e) => {
-            eprintln!("[bountynet] Quote verify:    FAIL — {e}");
+            eprintln!("[runcard] Quote verify:    FAIL — {e}");
             anyhow::bail!("platform quote verification failed");
         }
     }
@@ -804,7 +813,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("decode previous: {e}"))?
         {
             eprintln!(
-                "[bountynet] Chain step {depth}: verifying previous stage ({} bytes EAT)",
+                "[runcard] Chain step {depth}: verifying previous stage ({} bytes EAT)",
                 cursor.previous_attestation.len()
             );
 
@@ -828,7 +837,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
                 &prev_binding,
             ) {
                 Ok(_) => {
-                    eprintln!("[bountynet]   ✓ step {depth} quote verifies (Value X stable)");
+                    eprintln!("[runcard]   ✓ step {depth} quote verifies (Value X stable)");
                 }
                 Err(e) => {
                     anyhow::bail!("chain step {depth}: quote signature failed — {e}");
@@ -841,9 +850,9 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
                 anyhow::bail!("chain too deep (>16 stages) — aborting walk");
             }
         }
-        eprintln!("[bountynet] Chain:           PASS ({depth} stage(s) walked)");
+        eprintln!("[runcard] Chain:           PASS ({depth} stage(s) walked)");
     } else {
-        eprintln!("[bountynet] Chain:           leaf only (no previous stage)");
+        eprintln!("[runcard] Chain:           leaf only (no previous stage)");
     }
 
     // --- CT log verification (LE path only) ---
@@ -867,40 +876,40 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
 
     match net::ct::extract_scts_from_cert(&leaf_der) {
         Ok(scts) if scts.is_empty() => {
-            eprintln!("[bountynet] CT (SCTs):       none in cert (self-signed path — expected)");
+            eprintln!("[runcard] CT (SCTs):       none in cert (self-signed path — expected)");
         }
         Ok(scts) => match &issuer_der_opt {
             Some(issuer_der) => {
                 let report = net::ct::verify_scts_in_cert(&leaf_der, issuer_der)?;
                 if !report.failed.is_empty() {
-                    eprintln!("[bountynet] CT (SCTs):       FAIL");
+                    eprintln!("[runcard] CT (SCTs):       FAIL");
                     for f in &report.failed {
-                        eprintln!("[bountynet]   failed: {f}");
+                        eprintln!("[runcard]   failed: {f}");
                     }
                     anyhow::bail!("at least one SCT failed verification");
                 }
                 eprintln!(
-                    "[bountynet] CT (SCTs):       {} verified, {} unpinned (of {} total)",
+                    "[runcard] CT (SCTs):       {} verified, {} unpinned (of {} total)",
                     report.verified.len(),
                     report.unpinned.len(),
                     scts.len()
                 );
                 for log in &report.verified {
-                    eprintln!("[bountynet]   ✓ {log}");
+                    eprintln!("[runcard]   ✓ {log}");
                 }
                 if !report.any_verified() {
-                    eprintln!("[bountynet]   WARNING: no SCTs from pinned logs — consider expanding net::ct::PINNED_LOGS");
+                    eprintln!("[runcard]   WARNING: no SCTs from pinned logs — consider expanding net::ct::PINNED_LOGS");
                 }
             }
             None => {
                 eprintln!(
-                    "[bountynet] CT (SCTs):       {} present but issuer cert not in chain — cannot verify",
+                    "[runcard] CT (SCTs):       {} present but issuer cert not in chain — cannot verify",
                     scts.len()
                 );
             }
         },
         Err(e) => {
-            eprintln!("[bountynet] CT (SCTs):       malformed extension: {e}");
+            eprintln!("[runcard] CT (SCTs):       malformed extension: {e}");
             anyhow::bail!("SCT extension parse error");
         }
     }
@@ -911,23 +920,23 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
         Ok(reg) if !reg.is_empty() => {
             let lookup = reg.lookup(&value_x_hex);
             eprintln!(
-                "[bountynet] Registry ({} entries): {}",
+                "[runcard] Registry ({} entries): {}",
                 reg.len(),
                 registry::describe(&lookup)
             );
         }
         Ok(_) => {
-            eprintln!("[bountynet] Registry: empty (no entries loaded)");
+            eprintln!("[runcard] Registry: empty (no entries loaded)");
         }
         Err(e) => {
-            eprintln!("[bountynet] Registry: load failed — {e}");
+            eprintln!("[runcard] Registry: load failed — {e}");
         }
     }
 
     eprintln!();
-    eprintln!("[bountynet] === Check Complete ===");
+    eprintln!("[runcard] === Check Complete ===");
     eprintln!(
-        "[bountynet] {} is a genuine {:?} TEE running Value X {}",
+        "[runcard] {} is a genuine {:?} TEE running Value X {}",
         host,
         platform,
         &value_x_hex[..16]
@@ -1012,7 +1021,7 @@ fn cmd_verify(args: &[String]) -> anyhow::Result<()> {
     }
 
     let path =
-        att_path.ok_or_else(|| anyhow::anyhow!("Usage: bountynet verify <attestation.json>"))?;
+        att_path.ok_or_else(|| anyhow::anyhow!("Usage: runcard verify <attestation.json>"))?;
     let att_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
 
     verify_attestation_json(&att_json, source_dir.as_deref(), artifact_path.as_deref())
@@ -1030,11 +1039,11 @@ fn verify_attestation_json(
     let binding_hex = att_json["binding"].as_str().unwrap_or("");
     let quote_hex = att_json["quote"].as_str().unwrap_or("");
 
-    eprintln!("[bountynet] === Verification ===");
-    eprintln!("[bountynet] Platform: {platform_str}");
-    eprintln!("[bountynet] CT: {ct_hex}");
-    eprintln!("[bountynet] A:  {a_hex}");
-    eprintln!("[bountynet] X:  {x_hex}");
+    eprintln!("[runcard] === Verification ===");
+    eprintln!("[runcard] Platform: {platform_str}");
+    eprintln!("[runcard] CT: {ct_hex}");
+    eprintln!("[runcard] A:  {a_hex}");
+    eprintln!("[runcard] X:  {x_hex}");
 
     // Check 1: Verify binding hash
     let ct = hex::decode(ct_hex)?;
@@ -1047,12 +1056,12 @@ fn verify_attestation_json(
     let expected_binding = hex::encode(Sha256::digest(&binding_input));
 
     if expected_binding != binding_hex {
-        eprintln!("[bountynet] FAIL: binding hash mismatch");
-        eprintln!("[bountynet]   expected: {expected_binding}");
-        eprintln!("[bountynet]   got:      {binding_hex}");
+        eprintln!("[runcard] FAIL: binding hash mismatch");
+        eprintln!("[runcard]   expected: {expected_binding}");
+        eprintln!("[runcard]   got:      {binding_hex}");
         std::process::exit(1);
     }
-    eprintln!("[bountynet] Binding hash: PASS");
+    eprintln!("[runcard] Binding hash: PASS");
 
     // Check 2: Verify TEE quote
     let quote_bytes = hex::decode(quote_hex)?;
@@ -1062,9 +1071,9 @@ fn verify_attestation_json(
     // This is platform-specific — check report_data[0..32] == binding
     let report_data_ok = verify_quote_binding(&quote_bytes, &binding_bytes, platform_str);
     if report_data_ok {
-        eprintln!("[bountynet] Quote binding: PASS");
+        eprintln!("[runcard] Quote binding: PASS");
     } else {
-        eprintln!("[bountynet] Quote binding: FAIL (report_data doesn't match)");
+        eprintln!("[runcard] Quote binding: FAIL (report_data doesn't match)");
         std::process::exit(1);
     }
 
@@ -1084,28 +1093,28 @@ fn verify_attestation_json(
             if let Some(extracted) = extract_platform_measurement(&quote_bytes, &p) {
                 let extracted_hex = hex::encode(&extracted);
                 if extracted_hex == platform_measurement_hex {
-                    eprintln!("[bountynet] Platform measurement: PASS — matches attestation");
+                    eprintln!("[runcard] Platform measurement: PASS — matches attestation");
                 } else {
-                    eprintln!("[bountynet] Platform measurement: FAIL");
-                    eprintln!("[bountynet]   attestation: {platform_measurement_hex}");
-                    eprintln!("[bountynet]   extracted:   {extracted_hex}");
+                    eprintln!("[runcard] Platform measurement: FAIL");
+                    eprintln!("[runcard]   attestation: {platform_measurement_hex}");
+                    eprintln!("[runcard]   extracted:   {extracted_hex}");
                     std::process::exit(1);
                 }
             } else {
-                eprintln!("[bountynet] Platform measurement: COULD NOT EXTRACT from quote");
+                eprintln!("[runcard] Platform measurement: COULD NOT EXTRACT from quote");
                 std::process::exit(1);
             }
         }
     } else {
-        eprintln!("[bountynet] Platform measurement: NOT PRESENT in attestation");
+        eprintln!("[runcard] Platform measurement: NOT PRESENT in attestation");
         eprintln!(
-            "[bountynet] WARNING: cannot verify builder identity without platform measurement"
+            "[runcard] WARNING: cannot verify builder identity without platform measurement"
         );
     }
 
     // Check 4: Verify TEE quote signature chain
     // This is the cryptographic proof that the quote is from real hardware.
-    eprintln!("[bountynet] Verifying TEE signature chain...");
+    eprintln!("[runcard] Verifying TEE signature chain...");
     let platform = match platform_str {
         "Tdx" => Some(quote::Platform::Tdx),
         "SevSnp" => Some(quote::Platform::SevSnp),
@@ -1120,17 +1129,17 @@ fn verify_attestation_json(
         };
         match quote::verify::verify_platform_quote(p, &quote_bytes, &binding_arr) {
             Ok(measurements) => {
-                eprintln!("[bountynet] TEE signature chain: PASS");
+                eprintln!("[runcard] TEE signature chain: PASS");
                 for (name, val) in &measurements {
-                    eprintln!("[bountynet]   {}: {}", name, hex::encode(val));
+                    eprintln!("[runcard]   {}: {}", name, hex::encode(val));
                 }
             }
             Err(e) => {
-                eprintln!("[bountynet] TEE signature chain: FAIL — {e}");
+                eprintln!("[runcard] TEE signature chain: FAIL — {e}");
                 // Don't exit — the binding check above is the primary proof.
                 // Signature chain failure means we can't confirm it's real hardware,
                 // but the binding is still mathematically valid.
-                eprintln!("[bountynet] WARNING: quote may not be from genuine hardware");
+                eprintln!("[runcard] WARNING: quote may not be from genuine hardware");
             }
         }
     }
@@ -1138,16 +1147,16 @@ fn verify_attestation_json(
     // Check 5: Optionally verify CT against source
     if let Some(dir) = source_dir {
         eprintln!(
-            "[bountynet] Verifying source hash against {}",
+            "[runcard] Verifying source hash against {}",
             dir.display()
         );
         let local_ct = compute_tree_hash(dir)?;
         if hex::encode(local_ct) == ct_hex {
-            eprintln!("[bountynet] Source hash: PASS — matches attestation");
+            eprintln!("[runcard] Source hash: PASS — matches attestation");
         } else {
-            eprintln!("[bountynet] Source hash: FAIL");
-            eprintln!("[bountynet]   attestation: {ct_hex}");
-            eprintln!("[bountynet]   local:       {}", hex::encode(local_ct));
+            eprintln!("[runcard] Source hash: FAIL");
+            eprintln!("[runcard]   attestation: {ct_hex}");
+            eprintln!("[runcard]   local:       {}", hex::encode(local_ct));
             std::process::exit(1);
         }
     }
@@ -1155,15 +1164,15 @@ fn verify_attestation_json(
     // Check 6: Optionally verify A against artifact
     if let Some(path) = artifact_path {
         eprintln!(
-            "[bountynet] Verifying artifact hash against {}",
+            "[runcard] Verifying artifact hash against {}",
             path.display()
         );
         let bytes = std::fs::read(path)?;
         let local_a = hex::encode(Sha384::digest(&bytes));
         if local_a == a_hex {
-            eprintln!("[bountynet] Artifact hash: PASS — matches attestation");
+            eprintln!("[runcard] Artifact hash: PASS — matches attestation");
         } else {
-            eprintln!("[bountynet] Artifact hash: FAIL");
+            eprintln!("[runcard] Artifact hash: FAIL");
             std::process::exit(1);
         }
     }
@@ -1177,22 +1186,22 @@ fn verify_attestation_json(
         Ok(reg) if !reg.is_empty() => {
             let lookup = reg.lookup(x_hex);
             eprintln!(
-                "[bountynet] Registry ({} entries): {}",
+                "[runcard] Registry ({} entries): {}",
                 reg.len(),
                 registry::describe(&lookup)
             );
         }
         Ok(_) => {
-            eprintln!("[bountynet] Registry: empty (no entries loaded)");
+            eprintln!("[runcard] Registry: empty (no entries loaded)");
         }
         Err(e) => {
-            eprintln!("[bountynet] Registry: load failed — {e}");
+            eprintln!("[runcard] Registry: load failed — {e}");
         }
     }
 
     eprintln!();
-    eprintln!("[bountynet] === Verification Complete ===");
-    eprintln!("[bountynet] This artifact was built from this source inside genuine {platform_str} hardware.");
+    eprintln!("[runcard] === Verification Complete ===");
+    eprintln!("[runcard] This artifact was built from this source inside genuine {platform_str} hardware.");
 
     Ok(())
 }
@@ -1250,23 +1259,23 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
         stage0_path.ok_or_else(|| anyhow::anyhow!("--attestation <stage0.cbor> required"))?;
 
     // --- Step 1: confirm we're running inside a TEE ---
-    eprintln!("[bountynet] === Stage 1: Attested Runtime ===");
+    eprintln!("[runcard] === Stage 1: Attested Runtime ===");
     let tee_provider = tee::detect::detect_tee()
         .map_err(|e| anyhow::anyhow!("Stage 1 must run inside a TEE: {e}"))?;
-    eprintln!("[bountynet] TEE: {:?}", tee_provider.platform());
+    eprintln!("[runcard] TEE: {:?}", tee_provider.platform());
 
     // --- Step 2: load stage 0 EAT (CBOR, canonical format) ---
     let stage0_cbor = std::fs::read(&stage0_path)
         .map_err(|e| anyhow::anyhow!("read {}: {e}", stage0_path.display()))?;
     eprintln!(
-        "[bountynet] Stage 0 EAT: {} bytes from {}",
+        "[runcard] Stage 0 EAT: {} bytes from {}",
         stage0_cbor.len(),
         stage0_path.display()
     );
     let stage0_eat = eat::EatToken::from_cbor(&stage0_cbor)
         .map_err(|e| anyhow::anyhow!("decode stage 0 EAT: {e}"))?;
     eprintln!(
-        "[bountynet] Stage 0 Value X: {}",
+        "[runcard] Stage 0 Value X: {}",
         hex::encode(stage0_eat.value_x)
     );
 
@@ -1285,9 +1294,9 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
         &stage0_binding,
     ) {
         Ok(measurements) => {
-            eprintln!("[bountynet] Stage 0 quote: PASS");
+            eprintln!("[runcard] Stage 0 quote: PASS");
             for (name, val) in &measurements {
-                eprintln!("[bountynet]   {}: {}", name, hex::encode(val));
+                eprintln!("[runcard]   {}: {}", name, hex::encode(val));
             }
         }
         Err(e) => {
@@ -1306,7 +1315,7 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
             hex::encode(current_x)
         );
     }
-    eprintln!("[bountynet] Value X: MATCHES stage 0");
+    eprintln!("[runcard] Value X: MATCHES stage 0");
 
     // --- Step 5: generate stage 1 TLS keypair ---
     // Its SPKI hash goes into the EAT, and the EAT's binding goes
@@ -1334,10 +1343,10 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     report_data[32..64].copy_from_slice(&current_x[..32]);
 
     // --- Step 7: collect stage 1 quote ---
-    eprintln!("[bountynet] Collecting stage 1 quote...");
+    eprintln!("[runcard] Collecting stage 1 quote...");
     let evidence = tee_provider.collect_evidence(&report_data)?;
     eprintln!(
-        "[bountynet] Stage 1 quote: {} bytes from {:?}",
+        "[runcard] Stage 1 quote: {} bytes from {:?}",
         evidence.raw_quote.len(),
         evidence.platform
     );
@@ -1373,7 +1382,7 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     let stage1_path = output_dir.join("stage1-attestation.cbor");
     std::fs::write(&stage1_path, &stage1_cbor)?;
     eprintln!(
-        "[bountynet] Stage 1 EAT: {} bytes → {}",
+        "[runcard] Stage 1 EAT: {} bytes → {}",
         stage1_cbor.len(),
         stage1_path.display()
     );
@@ -1382,16 +1391,16 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     let domain = net::acme::domain_from_value_x(&current_x);
     let attested = net::attested_tls::make_attested_cert(&tls_kp, &domain, &stage1_cbor)?;
     eprintln!(
-        "[bountynet] Attested-TLS cert built ({} bytes DER) — serving at {}",
+        "[runcard] Attested-TLS cert built ({} bytes DER) — serving at {}",
         attested.cert_der.len(),
         domain
     );
 
     // --- Step 10: serve ---
     eprintln!();
-    eprintln!("[bountynet] === Stage 1 Verified ===");
-    eprintln!("[bountynet] Chain: source → attested build → attested runtime");
-    eprintln!("[bountynet] Value X: {}", hex::encode(current_x));
+    eprintln!("[runcard] === Stage 1 Verified ===");
+    eprintln!("[runcard] Chain: source → attested build → attested runtime");
+    eprintln!("[runcard] Value X: {}", hex::encode(current_x));
 
     let tls_state = Arc::new(net::tls::TlsState::new_with_pem(
         attested.cert_pem.as_bytes(),
@@ -1409,14 +1418,14 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     let state_clone = tls_state.clone();
     tokio::spawn(async move {
         if let Err(e) = net::tls::serve(state_clone, 443).await {
-            eprintln!("[bountynet] TLS server error: {e}");
+            eprintln!("[runcard] TLS server error: {e}");
         }
     });
-    eprintln!("[bountynet] Attested TLS server started on :443");
+    eprintln!("[runcard] Attested TLS server started on :443");
 
     // --- Step 11: execute workload if provided ---
     if let Some(cmd) = run_cmd {
-        eprintln!("[bountynet] Running: {cmd}");
+        eprintln!("[runcard] Running: {cmd}");
         let status = std::process::Command::new("sh")
             .arg("-c")
             .arg(&cmd)
@@ -1425,10 +1434,10 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
             .env("BOUNTYNET_DOMAIN", &domain)
             .env("BOUNTYNET_STAGE", "1")
             .status()?;
-        eprintln!("[bountynet] Workload exited: {status}");
+        eprintln!("[runcard] Workload exited: {status}");
     } else {
-        eprintln!("[bountynet] No --cmd provided. Serving attestation.");
-        eprintln!("[bountynet] Press Ctrl+C to stop.");
+        eprintln!("[runcard] No --cmd provided. Serving attestation.");
+        eprintln!("[runcard] Press Ctrl+C to stop.");
         tokio::signal::ctrl_c().await?;
     }
 
@@ -1461,15 +1470,15 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
 
     let source_dir = source_dir.ok_or_else(|| anyhow::anyhow!("source directory required"))?;
 
-    eprintln!("[bountynet] Enclave mode: build + serve in one process");
+    eprintln!("[runcard] Enclave mode: build + serve in one process");
 
     // Detect TEE once
     let tee_provider = tee::detect::detect_tee()?;
-    eprintln!("[bountynet] TEE: {:?}", tee_provider.platform());
+    eprintln!("[runcard] TEE: {:?}", tee_provider.platform());
 
     // Compute CT
     let ct = compute_tree_hash(&source_dir)?;
-    eprintln!("[bountynet] CT = {}", hex::encode(ct));
+    eprintln!("[runcard] CT = {}", hex::encode(ct));
 
     // Ratchet
     let build_workspace = tempdir()?;
@@ -1483,7 +1492,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     std::fs::create_dir_all(&dep_cache)?;
 
     let cmd = build_cmd.unwrap_or_else(|| detect_build_cmd(&frozen_source));
-    eprintln!("[bountynet] Building: {cmd}");
+    eprintln!("[runcard] Building: {cmd}");
     let status = std::process::Command::new("sh")
         .arg("-c")
         .arg(&cmd)
@@ -1500,11 +1509,11 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     if ct != ct_post {
         anyhow::bail!("RATCHET VIOLATED");
     }
-    eprintln!("[bountynet] Ratchet OK");
+    eprintln!("[runcard] Ratchet OK");
 
     // Compute Value X
     let value_x = compute_tree_hash(&frozen_source)?;
-    eprintln!("[bountynet] X = {}", hex::encode(value_x));
+    eprintln!("[runcard] X = {}", hex::encode(value_x));
 
     // --- Attested TLS: generate TLS keypair BEFORE quote collection ---
     //
@@ -1515,11 +1524,11 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     // checks that sha256(leaf_cert_spki) matches eat.tls_spki_hash
     // knows that the cert *belongs* to the attested TEE — no MITM,
     // no relay. See net::attested_tls for the full chain description.
-    eprintln!("[bountynet] Generating attested-TLS keypair inside enclave");
+    eprintln!("[runcard] Generating attested-TLS keypair inside enclave");
     let tls_kp = net::attested_tls::generate_keypair()?;
     let tls_spki_hash = net::attested_tls::spki_hash_of(&tls_kp);
     eprintln!(
-        "[bountynet] TLS SPKI sha256: {}",
+        "[runcard] TLS SPKI sha256: {}",
         hex::encode(tls_spki_hash)
     );
 
@@ -1543,7 +1552,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     eat_partial.tls_spki_hash = tls_spki_hash;
 
     let binding: [u8; 32] = eat_partial.binding_bytes();
-    eprintln!("[bountynet] EAT binding: {}", hex::encode(binding));
+    eprintln!("[runcard] EAT binding: {}", hex::encode(binding));
 
     let mut report_data = [0u8; 64];
     report_data[..32].copy_from_slice(&binding);
@@ -1551,7 +1560,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
 
     let evidence = tee_provider.collect_evidence(&report_data)?;
     eprintln!(
-        "[bountynet] Quote: {} bytes from {:?}",
+        "[runcard] Quote: {} bytes from {:?}",
         evidence.raw_quote.len(),
         evidence.platform
     );
@@ -1654,19 +1663,19 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     // This is what goes into the CMW cert extension AND what /eat serves.
     let eat_cbor = eat.to_cbor()?;
     eprintln!(
-        "[bountynet] EAT (CBOR): {} bytes — embedded in attested-TLS cert + served at /eat",
+        "[runcard] EAT (CBOR): {} bytes — embedded in attested-TLS cert + served at /eat",
         eat_cbor.len()
     );
 
-    eprintln!("[bountynet] === Enclave Ready ===");
-    eprintln!("[bountynet] Value X: {}", hex::encode(value_x));
-    eprintln!("[bountynet] Domain: {domain}");
+    eprintln!("[runcard] === Enclave Ready ===");
+    eprintln!("[runcard] Value X: {}", hex::encode(value_x));
+    eprintln!("[runcard] Domain: {domain}");
     if kms_private_key.is_some() {
-        eprintln!("[bountynet] KMS: GET /kms-attestation (fresh doc) + POST /kms-unwrap");
+        eprintln!("[runcard] KMS: GET /kms-attestation (fresh doc) + POST /kms-unwrap");
     }
 
     // Try TLS on vsock first. If ring crypto fails (some enclaves), fall back to plain vsock.
-    eprintln!("[bountynet] Parent should run: bountynet proxy --cid <enclave-cid>");
+    eprintln!("[runcard] Parent should run: runcard proxy --cid <enclave-cid>");
 
     match rustls::crypto::ring::default_provider().install_default() {
         Ok(_) => {
@@ -1676,12 +1685,12 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
             let tls_config = {
                 let ac = net::attested_tls::make_attested_cert(&tls_kp, &domain, &eat_cbor)?;
                 eprintln!(
-                    "[bountynet] attested-TLS cert built ({} bytes DER, EAT extension marked critical)",
+                    "[runcard] attested-TLS cert built ({} bytes DER, EAT extension marked critical)",
                     ac.cert_der.len()
                 );
                 net::tls::make_server_config(ac.cert_pem.as_bytes(), ac.key_pem.as_bytes())?
             };
-            eprintln!("[bountynet] TLS on vsock (inside enclave)");
+            eprintln!("[runcard] TLS on vsock (inside enclave)");
             #[cfg(all(feature = "nitro", unix))]
             {
                 net::vsock::serve_tls_vsock(
@@ -1703,7 +1712,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
             }
         }
         Err(_) => {
-            eprintln!("[bountynet] TLS crypto unavailable — serving plain HTTP on vsock");
+            eprintln!("[runcard] TLS crypto unavailable — serving plain HTTP on vsock");
             net::vsock::serve_vsock(&attestation_json)?;
         }
     }
@@ -1738,7 +1747,7 @@ fn cmd_run_sync(args: &[String]) -> anyhow::Result<()> {
     let attestation_path =
         attestation_path.ok_or_else(|| anyhow::anyhow!("--attestation <path> required"))?;
 
-    eprintln!("[bountynet] Stage 1 (sync mode): self-verification");
+    eprintln!("[runcard] Stage 1 (sync mode): self-verification");
 
     // Load and verify attestation
     let att_contents = std::fs::read_to_string(&attestation_path)?;
@@ -1748,33 +1757,33 @@ fn cmd_run_sync(args: &[String]) -> anyhow::Result<()> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("missing value_x"))?;
 
-    eprintln!("[bountynet] Stage 0 Value X: {}", &stage0_x[..24]);
+    eprintln!("[runcard] Stage 0 Value X: {}", &stage0_x[..24]);
 
     // Re-compute Value X
     let current_x = compute_tree_hash(&work_dir)?;
     let current_x_hex = hex::encode(current_x);
 
     if current_x_hex != stage0_x {
-        eprintln!("[bountynet] FATAL: Value X mismatch");
-        eprintln!("[bountynet]   stage 0: {stage0_x}");
-        eprintln!("[bountynet]   current: {current_x_hex}");
+        eprintln!("[runcard] FATAL: Value X mismatch");
+        eprintln!("[runcard]   stage 0: {stage0_x}");
+        eprintln!("[runcard]   current: {current_x_hex}");
         std::process::exit(1);
     }
-    eprintln!("[bountynet] Value X: MATCHES");
+    eprintln!("[runcard] Value X: MATCHES");
 
     // In sync mode (Nitro Enclave), serve the stage 0 attestation directly.
     // The stage 0 quote already contains the Nitro attestation with Value X bound.
     // Re-collecting a quote would require re-initializing the NSM device which
     // may fail if it's already been used by stage 0.
     let attestation_json = att_contents;
-    eprintln!("[bountynet] === Stage 1 Verified (sync) ===");
-    eprintln!("[bountynet] Value X: {current_x_hex}");
+    eprintln!("[runcard] === Stage 1 Verified (sync) ===");
+    eprintln!("[runcard] Value X: {current_x_hex}");
 
     // Serve via vsock (blocking)
     let domain = net::acme::domain_from_value_x(&current_x);
-    eprintln!("[bountynet] Domain: {domain}");
+    eprintln!("[runcard] Domain: {domain}");
     eprintln!(
-        "[bountynet] Serving via vsock on port {}",
+        "[runcard] Serving via vsock on port {}",
         net::vsock::VSOCK_PORT
     );
 
@@ -1849,10 +1858,10 @@ fn cmd_merge(args: &[String]) -> anyhow::Result<()> {
         }
     }
 
-    eprintln!("[bountynet] All attestations agree:");
-    eprintln!("[bountynet]   Value X: {first_x}");
-    eprintln!("[bountynet]   CT:      {first_ct}");
-    eprintln!("[bountynet]   A:       {first_a}");
+    eprintln!("[runcard] All attestations agree:");
+    eprintln!("[runcard]   Value X: {first_x}");
+    eprintln!("[runcard]   CT:      {first_ct}");
+    eprintln!("[runcard]   A:       {first_a}");
 
     // Build platform measurement map (Rcommon)
     let mut platform_measurements = serde_json::Map::new();
@@ -1872,7 +1881,7 @@ fn cmd_merge(args: &[String]) -> anyhow::Result<()> {
         }
         platforms_seen.push(platform.to_string());
         eprintln!(
-            "[bountynet]   {platform}: measurement={}",
+            "[runcard]   {platform}: measurement={}",
             &measurement[..32.min(measurement.len())]
         );
     }
@@ -1897,17 +1906,17 @@ fn cmd_merge(args: &[String]) -> anyhow::Result<()> {
     std::fs::write(&output_path, serde_json::to_string_pretty(&merged)?)?;
 
     eprintln!();
-    eprintln!("[bountynet] === Merged Attestation ===");
-    eprintln!("[bountynet] Platforms: {}", platforms_seen.join(", "));
-    eprintln!("[bountynet] Value X: {first_x}");
-    eprintln!("[bountynet] Output: {}", output_path.display());
+    eprintln!("[runcard] === Merged Attestation ===");
+    eprintln!("[runcard] Platforms: {}", platforms_seen.join(", "));
+    eprintln!("[runcard] Value X: {first_x}");
+    eprintln!("[runcard] Output: {}", output_path.display());
     eprintln!();
     if platforms_seen.len() >= 2 {
         eprintln!(
-            "[bountynet] Anytrust: {} independent TEE vendors attest the same Value X.",
+            "[runcard] Anytrust: {} independent TEE vendors attest the same Value X.",
             platforms_seen.len()
         );
-        eprintln!("[bountynet] Trust at least one vendor → trust the build.");
+        eprintln!("[runcard] Trust at least one vendor → trust the build.");
     }
 
     Ok(())
@@ -1930,7 +1939,7 @@ fn detect_build_cmd(dir: &Path) -> String {
     } else if dir.join("go.mod").exists() {
         "go build ./...".into()
     } else {
-        eprintln!("[bountynet] WARNING: no build system detected, using 'make'");
+        eprintln!("[runcard] WARNING: no build system detected, using 'make'");
         "make".into()
     }
 }
