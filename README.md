@@ -1,259 +1,244 @@
-# bountynet-genesis
+# Runcard
 
-**A trust receipt for code, packages, and agents.** BountyNet proves the
-thing you are about to run, deploy, or hand secrets to is the code you
-think it is — in hardware, across three TEE vendors, verifiable by
-anyone with the source. The chain is closed on itself: the runner that
-built this binary is itself an attested build of this repo.
+Runcard is proof before privilege for agentic software.
 
----
+Before an app gives an agent, MCP server, package, deploy job, or service real
+power, it should be able to ask one practical question:
 
-## The one question
+> Is this live thing really the reviewed source it claims to be?
 
-> **Is this live thing really the source it claims to be?**
+This repo is still named `bountynet-genesis`, and the current binary is still
+`bountynet` until the rename lands. The product language is now Runcard: a
+small proof card that apps and workflows can verify before releasing secrets,
+tokens, deploy rights, filesystem access, or customer data.
 
-Not "probably." Not "we checked last Tuesday." Not "the cloud provider
-promises." A proof rooted in hardware that anyone can verify and nobody
-can argue with.
+![Runcard verified badge](docs/assets/runcard-badge.svg)
 
-That is the useful mass-market surface. Code signing says who published
-an artifact. BountyNet says what code is live before an AI agent gets a
-token, a package reaches production, or a secret leaves KMS.
+```ts
+const verdict = await runcard.verify("https://agent.example.com", {
+  source: "github.com/acme/support-flow",
+  policy: "reviewed-main-only"
+});
 
----
+if (verdict.ok) {
+  await secrets.release("PROD_SUPPORT_TOKEN");
+}
+```
 
-## Hardware Results
+## Why Devs Should Care
+
+- **Agentic workflows:** prove the running workflow before it gets a GitHub,
+  Linear, Stripe, or cloud token.
+- **MCP tool servers:** expose discovery first, then require a receipt before
+  model-controlled shell, database, browser, or filesystem tools.
+- **Package promotion:** compare an ordinary CI artifact with a hardware-rooted
+  rebuild witness before publishing.
+- **Secret release:** let KMS, Vault, or app middleware release sensitive
+  material only to a verified runtime.
+- **Deploy gates:** turn attestation into a pass/fail check developers can read
+  in a PR, release job, or service log.
+
+The point is not to make everyone care about code signing. The point is to give
+modern software a simple boundary: no proof, no privilege.
+
+## What Works Today
+
+The `v2/` implementation already proves the cryptographic core:
+
+- Stage 0 attested build inside a TEE.
+- Stage 1 attested runtime that verifies Stage 0 before serving.
+- Attested TLS certificate carrying an EAT receipt.
+- Recursive chain walk from runtime back to build.
+- Real hardware quote verification for Intel TDX, AMD SEV-SNP, and AWS Nitro
+  fixtures.
+- Ouroboros CI path where this repo is built by its own attested runner.
+
+That is the engine. Runcard is the developer-facing shape around it.
+
+## Product Surface
+
+### Shareable Card
+
+A Runcard should be something a developer can show, not just a file they store.
+The card is the human-facing receipt:
+
+- verdict: `verified`, `pending`, or `failed`
+- subject: the service, package, tool server, or workflow
+- source: repository and commit
+- policy: the rule that allowed or denied privilege
+- receipt URL: the full machine-verifiable evidence
+
+Target surfaces:
+
+```md
+[![Runcard verified](https://runcard.dev/badge/agent.example.com.svg)](
+  https://runcard.dev/card/agent.example.com
+)
+```
+
+```http
+GET /.well-known/runcard/card.json
+GET /.well-known/runcard/receipt
+```
+
+### App/API
+
+Apps should not parse attestation internals. They should ask for a verdict.
+
+```ts
+const verdict = await runcard.verify(target, {
+  source: "github.com/acme/support-flow",
+  policy: "reviewed-main-only"
+});
+```
+
+### CI Receipt
+
+Drop one step into CI and receive `proof-receipt.json` plus the raw
+`attestation.cbor` evidence.
+
+```yaml
+- uses: maceip/bountynet-genesis/v2/action@main
+  with:
+    source: .
+    cmd: npm test && npm run build
+```
+
+Near-term goal: make this work without the user owning a TEE by sending the
+checked-out workspace to a short-lived shadow build service. See
+[`v2/SHADOW.md`](v2/SHADOW.md).
+
+### Policy Gate
+
+Current CLI name:
+
+```bash
+bountynet gate \
+  --receipt ./proof-receipt.json \
+  --policy .runcard.yml
+```
+
+Target CLI name after the rename:
+
+```bash
+runcard gate \
+  --receipt ./proof-receipt.json \
+  --policy .runcard.yml
+```
+
+Example policy:
+
+```yaml
+source: github.com/acme/support-flow
+ref: refs/heads/main
+require_reviewed_commit: true
+allow:
+  secrets:
+    - PROD_SUPPORT_TOKEN
+```
+
+### Agentic Integrations
+
+- **MCP server:** `verify_runtime`, `verify_artifact`, `explain_receipt`,
+  `should_release_secret`.
+- **Agent SDK guardrail:** block tool calls that would release secrets, deploy,
+  mutate repos, or access customer data unless the target has a valid receipt.
+- **Runtime API:** `GET /.well-known/runcard/receipt` for services that want to
+  advertise their proof.
+- **GitHub check summary:** a PR-level line that says whether this code can
+  receive privilege.
+
+## How The Proof Works
+
+Stage 0 runs the build inside trusted hardware:
+
+1. Refuses to run outside a TEE.
+2. Hashes and freezes the source tree.
+3. Runs the build.
+4. Hashes the artifact.
+5. Computes `Value X`, the portable source identity.
+6. Places the binding hash into the TEE quote.
+7. Emits an EAT receipt as CBOR.
+
+Stage 1 runs the service:
+
+1. Loads the Stage 0 receipt.
+2. Verifies the Stage 0 hardware quote.
+3. Recomputes `Value X` from disk.
+4. Generates a TLS key inside the TEE.
+5. Collects a fresh runtime quote bound to that TLS key.
+6. Serves an attested TLS certificate containing the runtime receipt.
+
+A verifier checks that the TLS key matches the receipt, the hardware quote is
+signed by the pinned vendor root, the runtime chains back to the build,
+`Value X` stays stable across the chain, and project policy allows that
+identity to receive privilege.
+
+## Hardware Status
 
 | Platform | Hardware | Root of trust | Chain | Status |
 |---|---|---|---|---|
-| **Intel TDX** | GCP c3-standard-4 | Intel SGX Root CA | stage 0 → stage 1 | ✅ Proven |
-| **AMD SEV-SNP** | AWS c6a.xlarge | AMD Root Key (ARK) | stage 0 → stage 1 | ✅ Proven |
-| **AWS Nitro** | AWS m5.xlarge enclave | AWS Nitro Root CA | stage 0 (single-process) | ✅ Proven |
-| **Azure SEV-SNP** | Azure Standard_DC4as_v5 CVM | AMD PSP + Azure vTOM/paravisor | blocked before stage 0 | Tested, not verified |
+| Intel TDX | GCP c3-standard-4 | Intel SGX Root CA | Stage 0 to Stage 1 | Proven |
+| AMD SEV-SNP | AWS c6a.xlarge | AMD Root Key | Stage 0 to Stage 1 | Proven fixtures |
+| AWS Nitro | AWS m5.xlarge enclave | AWS Nitro Root CA | Stage 0 single-process | Proven |
+| Azure SEV-SNP | Azure Standard_DC4as_v5 CVM | AMD PSP + Azure vTOM | blocked before Stage 0 | Tested, not verified |
 
-Real attestation bytes captured from each proven platform live in
-[`v2/testdata/chain/`](v2/testdata/chain). Every commit runs them through
-the signature verifier as a regression gate.
-[`v2/tests/hardware_regression.rs`](v2/tests/hardware_regression.rs).
+Real attestation bytes live in [`v2/testdata/chain/`](v2/testdata/chain). The
+regression suite runs TDX and Nitro verification by default; SNP fixtures are
+present but the full signature test is ignored by default because the captured
+reports currently require live AMD KDS access.
 
-Azure was tested on 2026-05-01. The VM provisioned successfully in
-`northeurope`, booted with `Memory Encryption Features active: AMD SEV`,
-and produced a Linux release build. It did **not** expose the raw SNP
-interfaces bountynet needs today: `/dev/sev-guest` was absent and
-configfs-tsm report creation failed with `No such device or address`.
-That means Azure is recorded as tested but not yet verified; support
-needs an Azure MAA/vTOM evidence collector or a SKU/image that exposes
-fresh raw SNP/TDX quote collection.
-
-## The ouroboros
-
-Every push to `main` that touches `v2/` triggers
-[`.github/workflows/attested-self-build.yml`](.github/workflows/attested-self-build.yml),
-which dispatches to a self-hosted GCP TDX runner. The runner checks out
-the commit, runs `bountynet build v2/` inside the TEE, and uploads a
-real Intel-TDX-signed EAT attestation as a workflow artifact.
-
-The first ouroboros run is preserved byte-identically at
-[`v2/testdata/chain/tdx_ouroboros.cbor`](v2/testdata/chain/tdx_ouroboros.cbor)
-with its own regression test. **From that commit forward, every release
-of bountynet is provably built by a previous attested build of bountynet**,
-and the chain can be walked back to the first hardware run.
-
----
-
-## How it works
-
-### Stage 0 — Attested build
-
-`bountynet build <source-dir>` runs inside a TEE. It:
-
-1. Refuses to run outside a TEE.
-2. Hashes the source tree (`CT` = sha384 of all files, sorted).
-3. Freezes the source into a read-only copy (**ratchet** — Attestable
-   Containers contribution #1).
-4. Runs the build command.
-5. Verifies the source is byte-identical after the build (ratchet check).
-6. Hashes the artifact (`A`).
-7. Computes `Value X` = sha384 of the frozen source tree (the canonical
-   identity of the code — LATTE layer 2).
-8. Builds a partial EAT with the above claims plus `tls_spki_hash` (if
-   the caller bound a TLS key).
-9. Calls `binding_bytes()` on the partial EAT — this is the sha256 that
-   goes into the hardware quote's `report_data[0..32]`.
-10. Collects a hardware quote with that binding in `report_data`.
-11. Fills the quote and platform measurement into the EAT.
-12. Serializes to CBOR (`attestation.cbor`).
-
-The EAT format is the
-[IETF RATS](https://datatracker.ietf.org/wg/rats/about/) Entity Attestation
-Token (RFC 9711) with our profile URI `https://bountynet.dev/eat/v2`.
-Delivery is via a TCG DICE Conceptual Message Wrapper extension at OID
-`2.23.133.5.4.9` embedded in a self-signed X.509 cert — the same
-convention Gramine uses.
-
-### Stage 1 — Attested runtime
-
-`bountynet run <work-dir> --attestation stage0.cbor` runs inside a TEE
-and:
-
-1. Loads the stage 0 EAT.
-2. **Verifies stage 0's quote** against the pinned vendor root CA
-   (Intel / AMD / AWS). This is the "verify myself at boot" step from
-   LATTE — the runtime doesn't trust the producer.
-3. Re-computes Value X from disk, confirms it matches stage 0's claim.
-4. Generates a stage 1 TLS keypair.
-5. Builds a stage 1 EAT that **chains to stage 0** by setting
-   `previous_attestation = stage0_cbor`. `binding_bytes()` commits to
-   `sha256(previous_attestation)` via `previous_hash()`.
-6. Collects a fresh stage 1 quote with the new binding in report_data.
-7. Generates an attested-TLS cert carrying the stage 1 EAT.
-8. Serves over rustls with the attested cert.
-
-### Client-side verification
-
-`bountynet check https://<domain>/` runs anywhere (including your laptop)
-and:
-
-1. TLS handshake with a cert-accepting verifier — auth is by attestation,
-   not CA chain.
-2. Pulls the leaf certificate out of the rustls session.
-3. Extracts the EAT from the TCG DICE CMW extension.
-4. Recomputes `sha256(cert_spki)` and checks it against
-   `eat.tls_spki_hash` — **channel binding** (makes this attested-TLS,
-   not just attestation-over-TLS).
-5. Calls `verify_platform_quote(platform, quote, binding_bytes())`,
-   which checks both the report_data binding AND the full signature
-   chain against the pinned hardware root CA.
-6. Walks `previous_attestation` recursively: decodes each previous
-   stage, asserts Value X stability, verifies each ancestor's quote.
-7. (Optional) Registry lookup for project governance policy.
-
-This is Attestable Containers contribution #6 (build-to-runtime chain),
-which the paper explicitly left to the consumer.
-
----
-
-## Why users should care
-
-The first useful product is not "better code signing." It is a verifier
-for trust decisions people already make:
-
-- **Before an AI agent gets credentials:** prove the running agent image
-  matches reviewed source and a pinned Value X.
-- **Before a package is promoted:** compare the normal CI artifact to a
-  hardware-rooted rebuild witness.
-- **Before a service receives secrets:** release them only to a runtime
-  whose attested TLS certificate chains back to the reviewed build.
-
-[`v2/SHADOW.md`](v2/SHADOW.md) is the planned no-TEE-required entry
-point: a GitHub Action submits a build bundle, an isolated TDX VM
-rebuilds it, and the workflow gets back `shadow-attestation.cbor`.
-
----
-
-## Standards and papers
-
-| What we build | Derived from |
-|---|---|
-| Two-layer check (platform + portable identity) | [LATTE (Xu et al., SJTU, EuroS&P 2025)](https://ieeexplore.ieee.org/document/11041949) |
-| Ratchet + build-inside-TEE + (PCR, CT, A) binding | [Attestable Containers (Hugenroth et al., Cambridge/JKU, CCS 2025)](https://dl.acm.org/doi/10.1145/3719027.3744812) |
-| Build-to-runtime chain (AC contribution #6) | Left to consumer; we implement it |
-| EAT token format | [IETF RATS RFC 9711](https://datatracker.ietf.org/doc/rfc9711/) |
-| X.509 extension delivery | [TCG DICE Attestation Architecture v1.1](https://trustedcomputinggroup.org/resource/dice-attestation-architecture/) — OID `2.23.133.5.4.9` |
-| Bootstrap-once then cheap signatures | [Flashbots Andromeda / SIRRAH](https://github.com/flashbots/andromeda-sirrah-contracts) |
-
----
-
-## Quick start
+## Quick Start
 
 ```bash
-# Clone + build
 git clone https://github.com/maceip/bountynet-genesis
 cd bountynet-genesis/v2
-cargo build --release
-
-# Run the full test suite (65 tests including 6 that run real hardware
-# attestation bytes through verify_platform_quote)
 cargo test
+```
 
-# Attested build (must run inside a TEE — refuses otherwise)
-sudo ./target/release/bountynet build /path/to/your/source \
+Run an attested build inside a TEE:
+
+```bash
+sudo ./target/release/bountynet build /path/to/source \
   --cmd "your build command" \
   --output ./attest-out
+```
 
-# Attested runtime (serves TLS on :443 with the EAT in the cert extension)
-sudo ./target/release/bountynet run /path/to/your/source \
+Run an attested service:
+
+```bash
+sudo ./target/release/bountynet run /path/to/source \
   --attestation ./attest-out/attestation.cbor
+```
 
-# Verify from any machine — no TEE required on the verifier
+Verify it from any machine:
+
+```bash
 ./target/release/bountynet check https://<domain>/
 ```
 
----
+## Repo Map
 
-## Repository layout
-
-```
-v2/
-├── src/
-│   ├── main.rs                  cmd_build, cmd_run, cmd_check, cmd_enclave
-│   ├── eat.rs                   IETF RATS EAT profile `bountynet-v2`
-│   ├── quote/
-│   │   ├── mod.rs               Platform discriminant
-│   │   └── verify.rs            signature chain verification per platform
-│   ├── tee/
-│   │   ├── detect.rs            auto-detect TDX/SNP/Nitro
-│   │   ├── nitro.rs             /dev/nsm via aws-nitro-enclaves-nsm-api
-│   │   ├── snp.rs               /dev/sev-guest ioctl
-│   │   ├── tdx.rs               configfs-tsm
-│   │   └── tpm.rs               NitroTPM linking (SNP kernel measurement)
-│   ├── net/
-│   │   ├── attested_tls.rs      TCG DICE CMW X.509 extension + cert gen
-│   │   ├── tls.rs               rustls server config
-│   │   ├── vsock.rs             Nitro vsock bridge
-│   │   ├── acme.rs              Let's Encrypt TLS-ALPN-01
-│   │   └── ct.rs                SCT verification (module present, dead
-│   │                            code until dual-cert path lands)
-│   └── registry.rs              TrustRoot + entry lookup (governance,
-│                                LATTE says no DB needed for the proof)
-├── tests/
-│   ├── eat_kms_e2e.rs           EAT + KMS flow
-│   ├── attested_tls_e2e.rs      cert generation + extraction cycle
-│   ├── attested_tls_live.rs     real rustls server + client over TCP
-│   ├── chain_e2e.rs             2-stage + 3-stage chain walk
-│   └── hardware_regression.rs   real TDX/SNP/Nitro bytes, verify_platform_quote
-├── testdata/chain/              real EAT CBOR from live hardware runs
-│   ├── tdx_stage0.cbor          8436 B   GCP c3-standard-4 TDX
-│   ├── tdx_stage1.cbor         16896 B   chained to tdx_stage0
-│   ├── tdx_ouroboros.cbor       8436 B   produced by CI on commit 2593db6
-│   ├── snp_stage0.cbor          1620 B   AWS c6a.xlarge SNP
-│   ├── snp_stage1.cbor          3264 B   chained to snp_stage0
-│   └── nitro_stage0.cbor        5208 B   AWS m5.xlarge Nitro (debug-mode)
-├── CONSTITUTION.md              what we're building and why
-├── INVARIANT.md                 the three checks that define "done"
-├── DESIGN.md                    architectural memory — LATTE, AC, Andromeda
-├── HARDWARE_VALIDATION.md       the runbook that predicted both bugs caught
-│                                during the first TDX run
-├── STAGES.md                    platform status matrix
-├── BOOTSTRAP.md                 per-platform trust chain walk
-└── BUILD.md                     reproducible Nitro .eif build
-```
-
----
+- [`v2/src/eat.rs`](v2/src/eat.rs): EAT receipt schema and binding bytes.
+- [`v2/src/main.rs`](v2/src/main.rs): build, run, check, enclave commands.
+- [`v2/src/quote/verify.rs`](v2/src/quote/verify.rs): platform quote
+  verification.
+- [`v2/src/registry.rs`](v2/src/registry.rs): local verification registry.
+- [`v2/action/action.yml`](v2/action/action.yml): GitHub Action wrapper.
+- [`v2/SHADOW.md`](v2/SHADOW.md): no-TEE-required shadow attestation plan.
+- [`docs/index.html`](docs/index.html): public Runcard narrative and browser
+  proof.
 
 ## Status
 
-- **v2 is the current codebase.** The top-level `src/` + `contracts/` +
-  older workflows in this repo are v1 (the original `bountynet-shim`
-  crate, pre-chain). v1 still builds and runs; v2 is where the chain
-  work lives.
-- Three TEE paths are proven on live hardware: GCP TDX, AWS SEV-SNP,
-  and AWS Nitro. Azure SEV-SNP has been provisioned and tested, but is
-  not verified until bountynet can bind EAT `report_data` through
-  Azure's vTPM/MAA path or a raw quote interface.
-- GitHub Actions self-hosted TDX runner registered and idle, ready for
-  the next push.
-- 65 tests passing on release.
+`v2/` is the current codebase. The proof engine works; the next job is to make
+Runcard feel like ordinary developer infrastructure:
+
+- `proof-receipt.json`
+- `runcard gate`
+- GitHub Action check summaries
+- MCP and agent guardrails
+- shadow attestation service
 
 ## License
 
