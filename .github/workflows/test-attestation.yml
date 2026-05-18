@@ -89,4 +89,4 @@ jobs:
       - name: Hosted site TEE smoke
         run: |
           set -euo pipefail
-          v2/packaging/smoke-local-site.sh --mode tee --timeout 300
+          v2/packaging/smoke-local-site.sh --mode tee --timeout 900

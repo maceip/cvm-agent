@@ -136,9 +136,7 @@ fn cmd_proxy(args: &[String]) -> anyhow::Result<()> {
     let cid = cid.ok_or_else(|| anyhow::anyhow!("--cid <enclave-cid> required"))?;
 
     eprintln!("[runcard] Proxy: TCP:{port} → enclave CID {cid}");
-    eprintln!(
-        "[runcard] TLS terminates inside the enclave. This proxy only sees encrypted bytes."
-    );
+    eprintln!("[runcard] TLS terminates inside the enclave. This proxy only sees encrypted bytes.");
 
     if acme {
         let proxy_port = port;
@@ -1107,9 +1105,7 @@ fn verify_attestation_json(
         }
     } else {
         eprintln!("[runcard] Platform measurement: NOT PRESENT in attestation");
-        eprintln!(
-            "[runcard] WARNING: cannot verify builder identity without platform measurement"
-        );
+        eprintln!("[runcard] WARNING: cannot verify builder identity without platform measurement");
     }
 
     // Check 4: Verify TEE quote signature chain
@@ -1146,10 +1142,7 @@ fn verify_attestation_json(
 
     // Check 5: Optionally verify CT against source
     if let Some(dir) = source_dir {
-        eprintln!(
-            "[runcard] Verifying source hash against {}",
-            dir.display()
-        );
+        eprintln!("[runcard] Verifying source hash against {}", dir.display());
         let local_ct = compute_tree_hash(dir)?;
         if hex::encode(local_ct) == ct_hex {
             eprintln!("[runcard] Source hash: PASS — matches attestation");
@@ -1527,10 +1520,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     eprintln!("[runcard] Generating attested-TLS keypair inside enclave");
     let tls_kp = net::attested_tls::generate_keypair()?;
     let tls_spki_hash = net::attested_tls::spki_hash_of(&tls_kp);
-    eprintln!(
-        "[runcard] TLS SPKI sha256: {}",
-        hex::encode(tls_spki_hash)
-    );
+    eprintln!("[runcard] TLS SPKI sha256: {}", hex::encode(tls_spki_hash));
 
     // Provisional EAT: same fields as the final one EXCEPT
     // platform_quote is empty. binding_bytes() is defined to exclude
@@ -1947,9 +1937,15 @@ fn detect_build_cmd(dir: &Path) -> String {
 /// Find the primary build artifact.
 /// Checks build_dir first (where CARGO_TARGET_DIR points), then source_dir.
 fn find_artifact(build_dir: &Path, source_dir: &Path) -> PathBuf {
-    // Rust: CARGO_TARGET_DIR/release/
-    let target = build_dir.join("release");
-    if target.exists() {
+    // Rust: CARGO_TARGET_DIR/{release,debug}/. The attested hosted-site smoke
+    // intentionally uses debug builds, so falling back to hashing the entire
+    // target tree would turn a quick smoke into a long walk over incremental
+    // build output.
+    for profile in ["release", "debug"] {
+        let target = build_dir.join(profile);
+        if !target.exists() {
+            continue;
+        }
         if let Ok(entries) = std::fs::read_dir(&target) {
             for entry in entries.flatten() {
                 let path = entry.path();
