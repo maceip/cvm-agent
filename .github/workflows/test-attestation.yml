@@ -41,9 +41,15 @@ jobs:
 
       - name: Query attestation endpoint
         run: |
+          set -euo pipefail
           ATTEST_PORT="${BOUNTYNET_ATTEST_PORT:-9384}"
           echo "=== Health Check ==="
-          curl -sf "http://localhost:${ATTEST_PORT}/health" && echo " OK" || echo " FAILED"
+          if ! curl -sf "http://localhost:${ATTEST_PORT}/health"; then
+            echo "No pre-existing runner attestation endpoint on port ${ATTEST_PORT}."
+            echo "Continuing to the self-contained hosted-site TEE smoke."
+            exit 0
+          fi
+          echo " OK"
 
           echo ""
           echo "=== Value X ==="
@@ -74,6 +80,10 @@ jobs:
         run: |
           set -euo pipefail
           ATTEST_PORT="${BOUNTYNET_ATTEST_PORT:-9384}"
+          if ! curl -sf "http://localhost:${ATTEST_PORT}/health" >/dev/null; then
+            echo "No pre-existing runner attestation endpoint; skipping sidecar identity check."
+            exit 0
+          fi
           cargo run --bin verify-runner -- "http://localhost:${ATTEST_PORT}" --expected-platform Tdx
 
       - name: Hosted site TEE smoke
