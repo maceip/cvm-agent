@@ -1,0 +1,83 @@
+name: Package llmattest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version label to include in archive names
+        required: false
+        default: dev
+  push:
+    branches: [main]
+    paths:
+      - 'v2/**'
+      - '.github/workflows/llmattest-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Test llmattest unit surface
+        run: cargo test --manifest-path v2/Cargo.toml llm_attested --bin llmattest --lib
+
+      - name: Package Unix archive
+        if: runner.os != 'Windows'
+        env:
+          LLMATTEST_VERSION: ${{ github.event.inputs.version || github.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x v2/packaging/package-llmattest.sh
+          v2/packaging/package-llmattest.sh --target "${{ matrix.target }}" --version "$LLMATTEST_VERSION"
+
+      - name: Package Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          LLMATTEST_VERSION: ${{ github.event.inputs.version || github.sha }}
+        run: |
+          cargo build --manifest-path v2/Cargo.toml --release --bin llmattest --target "${{ matrix.target }}"
+          $pkg = "llmattest-$env:LLMATTEST_VERSION-${{ matrix.target }}"
+          $work = Join-Path $env:RUNNER_TEMP $pkg
+          New-Item -ItemType Directory -Path $work | Out-Null
+          Copy-Item "v2/target/${{ matrix.target }}/release/llmattest.exe" "$work/llmattest.exe"
+          Copy-Item "v2/LLM_ATTESTED.md" "$work/LLM_ATTESTED.md"
+          @{
+            name = "llmattest"
+            version = $env:LLMATTEST_VERSION
+            target = "${{ matrix.target }}"
+            binary = "llmattest.exe"
+            entrypoint = "llmattest start --team-payload team.json -- <agent command>"
+          } | ConvertTo-Json | Set-Content "$work/manifest.json"
+          New-Item -ItemType Directory -Path "v2/dist" -Force | Out-Null
+          Compress-Archive -Path $work -DestinationPath "v2/dist/$pkg.zip" -Force
+          Get-FileHash "v2/dist/$pkg.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $pkg.zip" } | Set-Content "v2/dist/$pkg.zip.sha256"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmattest-${{ matrix.target }}
+          path: |
+            v2/dist/llmattest-*
+          if-no-files-found: error

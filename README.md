@@ -233,6 +233,8 @@ hosted shadow receipt option for teams that do not run their own TEE hardware.
   verification.
 - [`v2/src/registry.rs`](v2/src/registry.rs): local verification registry.
 - [`v2/action/action.yml`](v2/action/action.yml): GitHub Action wrapper.
+- [`v2/HOSTED_SITE.md`](v2/HOSTED_SITE.md): local testing for the hosted
+  organizer/participant website, inside or outside a TEE.
 - [`v2/SHADOW.md`](v2/SHADOW.md): no-TEE-required shadow attestation plan.
 - [`docs/index.html`](docs/index.html): public Runcard narrative and browser
   proof.

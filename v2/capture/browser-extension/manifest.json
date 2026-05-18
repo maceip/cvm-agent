@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Attested Capture",
+  "version": "0.1.0",
+  "description": "Captures browser LLM interactions into an LLM Attested event stream.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "http://127.0.0.1:8090/*",
+    "http://localhost:8090/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://*.perplexity.ai/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html"
+}

@@ -1,0 +1,194 @@
+name: LLM Attested live RA capture
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-tdx-capture:
+    runs-on: [self-hosted, tdx, bountynet]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare toolchain
+        run: |
+          set -euo pipefail
+          if ! command -v cc >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential cmake pkg-config curl
+          fi
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          CARGO_BIN="$(command -v cargo || true)"
+          if [ -z "$CARGO_BIN" ] && [ -x "$HOME/.cargo/bin/cargo" ]; then
+            CARGO_BIN="$HOME/.cargo/bin/cargo"
+          fi
+          if [ -z "$CARGO_BIN" ]; then
+            echo "cargo was not found"
+            exit 1
+          fi
+          RUNCARD_BIN="$(command -v runcard || command -v bountynet || true)"
+          if [ -z "$RUNCARD_BIN" ]; then
+            echo "self-hosted RA runner must provide runcard or bountynet"
+            exit 1
+          fi
+          "$CARGO_BIN" --version
+          "$RUNCARD_BIN" 2>&1 | head -4 || true
+          echo "CARGO_BIN=$CARGO_BIN" >> "$GITHUB_ENV"
+          echo "RUNCARD_BIN=$RUNCARD_BIN" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
+
+      - name: Build binaries
+        run: |
+          set -euo pipefail
+          "$CARGO_BIN" build --manifest-path v2/Cargo.toml --release --bins
+
+      - name: Run live attested gateway capture E2E
+        run: |
+          set -euo pipefail
+          WORK="$GITHUB_WORKSPACE/live-ra"
+          rm -rf "$WORK"
+          mkdir -p "$WORK"
+
+          cleanup() {
+            for pid_file in "$WORK"/*.pid; do
+              [ -f "$pid_file" ] || continue
+              kill "$(cat "$pid_file")" >/dev/null 2>&1 || true
+            done
+          }
+          trap cleanup EXIT
+
+          python3 - "$WORK/upstream.pid" <<'PY' &
+          import json, sys
+          from http.server import BaseHTTPRequestHandler, HTTPServer
+          class Handler(BaseHTTPRequestHandler):
+              def do_POST(self):
+                  body = json.dumps({
+                      "id": "live-ra",
+                      "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+                      "usage": {"prompt_tokens": 5, "completion_tokens": 8, "total_tokens": 13},
+                  }).encode()
+                  self.send_response(200)
+                  self.send_header("content-type", "application/json")
+                  self.send_header("x-request-id", "live-ra-upstream")
+                  self.send_header("content-length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def log_message(self, fmt, *args):
+                  return
+          HTTPServer(("127.0.0.1", 19091), Handler).serve_forever()
+          PY
+          echo $! > "$WORK/upstream.pid"
+
+          ./v2/target/release/llm-event-service \
+            --listen 127.0.0.1:19080 \
+            --public-base-url http://127.0.0.1:19080 \
+            --gateway-base-url http://127.0.0.1:19088 \
+            --store "$WORK/store.json" \
+            --event-log-dir "$WORK/event-logs" \
+            --rate-state "$WORK/event-rate.json" \
+            --public-requests-per-minute 10000 \
+            --mutation-requests-per-minute 10000 \
+            --ingest-requests-per-minute 10000 &
+          echo $! > "$WORK/event-service.pid"
+
+          for _ in $(seq 1 100); do
+            curl -fsS http://127.0.0.1:19080/healthz >/dev/null && break
+            sleep 0.1
+          done
+
+          curl -fsS -X POST http://127.0.0.1:19080/events \
+            -H 'content-type: application/json' \
+            --data '{"name":"Live TDX RA Capture","gateway_base_url":"http://127.0.0.1:19088"}' \
+            > "$WORK/event.json"
+          EVENT_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_id"])' "$WORK/event.json")"
+          EVENT_SINK_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_sink_url"])' "$WORK/event.json")"
+          curl -fsS -X POST "http://127.0.0.1:19080/e/$EVENT_ID/teams" \
+            -H 'content-type: application/json' \
+            --data '{"team_name":"live-ra-team"}' \
+            > "$WORK/team.json"
+          TEAM_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["team_id"])' "$WORK/team.json")"
+          TEAM_KEY="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["team_api_key"])' "$WORK/team.json")"
+
+          mkdir -p "$WORK/attest-out"
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build v2 \
+            --cmd "$CARGO_BIN build --release --bins" \
+            --output "$WORK/attest-out"
+
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" run v2 \
+            --attestation "$WORK/attest-out/attestation.cbor" \
+            --cmd "./target/release/llm-gateway \
+              --listen 127.0.0.1:19088 \
+              --upstream http://127.0.0.1:19091 \
+              --upstream-no-auth \
+              --provider live-tdx-test \
+              --hackathon-id $EVENT_ID \
+              --event-sink-url $EVENT_SINK_URL \
+              --capture-method gateway_proxy \
+              --assurance attested \
+              --enforcement-mode routed \
+              --runcard-receipt $WORK/attest-out/stage1-attestation.cbor \
+              --events $WORK/gateway-events.cborl \
+              --rate-state $WORK/gateway-rate.json \
+              --team $TEAM_ID:$TEAM_KEY \
+              --ip-requests-per-minute 10000 \
+              --team-requests-per-minute 10000" &
+          echo $! > "$WORK/runcard-run.pid"
+
+          for _ in $(seq 1 200); do
+            curl -fsS http://127.0.0.1:19088/healthz >/dev/null && break
+            sleep 0.2
+          done
+          curl -fsS http://127.0.0.1:19088/.well-known/runcard/receipt > "$WORK/gateway-receipt.cbor"
+          test -s "$WORK/gateway-receipt.cbor"
+
+          curl -fsS -X POST http://127.0.0.1:19088/v1/chat/completions \
+            -H "authorization: Bearer $TEAM_KEY" \
+            -H 'content-type: application/json' \
+            -H 'x-llm-attested-agent: live-ra-agent' \
+            --data '{"model":"live-ra-model","messages":[{"role":"user","content":"prove RA"}]}' \
+            > "$WORK/model-response.json"
+
+          RUNCARD_URL="http://127.0.0.1:19080/e/$EVENT_ID/teams/$TEAM_ID/runcard.json"
+          for _ in $(seq 1 100); do
+            curl -fsS "$RUNCARD_URL" > "$WORK/runcard.json"
+            python3 - "$WORK/runcard.json" <<'PY' && break || true
+          import json, sys
+          card = json.load(open(sys.argv[1]))
+          assert card["stats"]["captured_events"] >= 1
+          assert card["labels"]["assurance"]["attested"] >= 1
+          assert card["labels"]["remote_attestation"]["https://runcard.dev/llm-capture-ra/v1"] >= 1
+          assert card["labels"]["ra_platforms"]["tdx"] >= 1
+          PY
+            sleep 0.2
+          done
+          python3 - "$WORK/runcard.json" <<'PY'
+          import json, sys
+          card = json.load(open(sys.argv[1]))
+          assert card["stats"]["total_tokens"] == 13, card
+          assert card["stats"]["models"]["live-ra-model"] == 1, card
+          print(json.dumps({
+              "event_count": card["stats"]["captured_events"],
+              "tokens": card["stats"]["total_tokens"],
+              "assurance": card["labels"]["assurance"],
+              "ra_platforms": card["labels"]["ra_platforms"],
+          }, indent=2))
+          PY
+
+      - name: Upload live RA artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmattest-live-ra-${{ github.run_id }}
+          path: |
+            live-ra/**/*.json
+            live-ra/**/*.cbor
+            live-ra/**/*.cborl
+          if-no-files-found: ignore

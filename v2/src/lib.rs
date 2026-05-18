@@ -1,4 +1,7 @@
 pub mod eat;
+pub mod llm_attested;
+pub mod llm_attested_net;
+pub mod llm_capture;
 pub mod net;
 pub mod quote;
 pub mod registry;

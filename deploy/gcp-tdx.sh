@@ -18,15 +18,18 @@ set -euo pipefail
 
 PROJECT="${GCP_PROJECT:-lowkey-b7136}"
 ZONE="${GCP_ZONE:-us-central1-a}"
+REGION="${GCP_REGION:-${ZONE%-*}}"
 INSTANCE_NAME="${INSTANCE_NAME:-bountynet-tdx-runner}"
 MACHINE_TYPE="${MACHINE_TYPE:-c3-standard-4}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 REGISTRY="ghcr.io"
 IMAGE="${REGISTRY}/${GITHUB_REPO}:${IMAGE_TAG}"
+STATIC_IP_NAME="${STATIC_IP_NAME:-${INSTANCE_NAME}-ip}"
 
 echo "=== Deploying bountynet-genesis TDX runner ==="
 echo "  Instance:  ${INSTANCE_NAME}"
 echo "  Zone:      ${ZONE}"
+echo "  Region:    ${REGION}"
 echo "  Machine:   ${MACHINE_TYPE} (TDX Confidential VM)"
 echo "  Image:     ${IMAGE}"
 echo "  Repo:      ${GITHUB_REPO}"
@@ -76,6 +79,17 @@ if gcloud compute instances describe "${INSTANCE_NAME}" --zone="${ZONE}" --proje
     gcloud compute instances delete "${INSTANCE_NAME}" --zone="${ZONE}" --project="${PROJECT}" --quiet
 fi
 
+if ! gcloud compute addresses describe "${STATIC_IP_NAME}" --region="${REGION}" --project="${PROJECT}" &>/dev/null; then
+    echo "Reserving regional static external IP ${STATIC_IP_NAME}..."
+    gcloud compute addresses create "${STATIC_IP_NAME}" \
+        --region="${REGION}" \
+        --project="${PROJECT}"
+fi
+
+EXTERNAL_IP=$(gcloud compute addresses describe "${STATIC_IP_NAME}" \
+    --region="${REGION}" --project="${PROJECT}" \
+    --format='get(address)')
+
 echo "Creating TDX Confidential VM..."
 gcloud compute instances create "${INSTANCE_NAME}" \
     --project="${PROJECT}" \
@@ -92,23 +106,22 @@ gcloud compute instances create "${INSTANCE_NAME}" \
     --metadata=RUNNER_IMAGE="${IMAGE}" \
     --metadata=GHCR_TOKEN="${GITHUB_TOKEN}" \
     --metadata=GHCR_USER="$(echo ${GITHUB_REPO} | cut -d/ -f1)" \
+    --address="${EXTERNAL_IP}" \
     --tags=bountynet-runner \
     --scopes=default
-
-EXTERNAL_IP=$(gcloud compute instances describe "${INSTANCE_NAME}" \
-    --zone="${ZONE}" --project="${PROJECT}" \
-    --format='get(networkInterfaces[0].accessConfigs[0].natIP)')
 
 echo ""
 echo "=== Deployment Complete ==="
 echo "  Instance: ${INSTANCE_NAME}"
-echo "  External IP: ${EXTERNAL_IP}"
+echo "  Static external IP: ${EXTERNAL_IP}"
 echo "  Attestation endpoint: http://${EXTERNAL_IP}:9384/attest"
 echo ""
 echo "  Wait ~2-3 minutes for Docker install and runner startup, then:"
 echo "    curl http://${EXTERNAL_IP}:9384/health"
-echo "    curl http://${EXTERNAL_IP}:9384/attest"
-echo "    curl -X POST http://${EXTERNAL_IP}:9384/attest/full | jq ."
+echo "    cargo run --bin verify-runner -- http://${EXTERNAL_IP}:9384 --expected-platform Tdx"
+echo ""
+echo "  The IP/DNS only routes you to an endpoint. Trust starts after verify-runner"
+echo "  checks a fresh nonce-bound hardware quote, Value X, and measurements."
 echo ""
 echo "  To check runner status:"
 echo "    gcloud compute ssh ${INSTANCE_NAME} --zone=${ZONE} -- docker logs bountynet-runner"

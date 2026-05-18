@@ -12,6 +12,22 @@ path = "src/main.rs"
 name = "bountynet"
 path = "src/main.rs"
 
+[[bin]]
+name = "llm-gateway"
+path = "src/bin/llm-gateway.rs"
+
+[[bin]]
+name = "llm-event-service"
+path = "src/bin/llm-event-service.rs"
+
+[[bin]]
+name = "llm-capture-daemon"
+path = "src/bin/llm-capture-daemon.rs"
+
+[[bin]]
+name = "llmattest"
+path = "src/bin/llmattest.rs"
+
 [features]
 default = ["nitro", "sev-snp", "tdx"]
 nitro = ["dep:serde_cbor", "dep:aws-nitro-enclaves-nsm-api", "dep:rsa", "dep:aes", "dep:cbc"]
@@ -39,6 +55,7 @@ x509-cert = { version = "0.2", features = ["std"] }
 der = { version = "0.7", features = ["std"] }
 spki = "0.7"
 base64 = "0.22"
+qrcodegen = "1"
 
 # Nitro. The NSM device crate is Unix-only; keep it target-scoped so
 # verifier-only builds still compile on developer workstations.

@@ -5,10 +5,22 @@ on:
 
 jobs:
   attest-test:
-    runs-on: [self-hosted, bountynet, tee]
+    runs-on: [self-hosted, bountynet, tdx]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare verifier toolchain
+        run: |
+          set -euo pipefail
+          if ! command -v cc >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential cmake pkg-config
+          fi
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
 
       - name: Check TEE environment
         run: |
@@ -35,7 +47,11 @@ jobs:
 
           echo ""
           echo "=== Fresh Full Attestation ==="
-          FULL_QUOTE=$(curl -sf -X POST "http://localhost:${ATTEST_PORT}/attest/full")
+          NONCE="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+          FULL_QUOTE=$(curl -sf -X POST "http://localhost:${ATTEST_PORT}/attest/full" \
+            -H 'content-type: application/json' \
+            --data "{\"nonce\":\"${NONCE}\"}")
+          test "$(echo "${FULL_QUOTE}" | jq -r .nonce)" = "${NONCE}"
           echo "${FULL_QUOTE}" | jq '{
             version: .version,
             platform: .platform,
@@ -46,38 +62,13 @@ jobs:
             quote_size: (.platform_quote | length / 2)
           }'
 
-      - name: Verify attestation locally
+      - name: Verify attestation identity
         run: |
+          set -euo pipefail
           ATTEST_PORT="${BOUNTYNET_ATTEST_PORT:-9384}"
-          echo "=== Remote Attestation Verification ==="
+          cargo run --bin verify-runner -- "http://localhost:${ATTEST_PORT}" --expected-platform Tdx
 
-          # Fetch the full quote
-          QUOTE_JSON=$(curl -sf -X POST "http://localhost:${ATTEST_PORT}/attest/full")
-
-          # Extract fields
-          PLATFORM=$(echo "${QUOTE_JSON}" | jq -r .platform)
-          VALUE_X=$(echo "${QUOTE_JSON}" | jq -r .value_x)
-          PUBKEY=$(echo "${QUOTE_JSON}" | jq -r .pubkey)
-          SIG=$(echo "${QUOTE_JSON}" | jq -r .signature)
-          TIMESTAMP=$(echo "${QUOTE_JSON}" | jq -r .timestamp)
-
-          echo "Platform: ${PLATFORM}"
-          echo "Value X:  ${VALUE_X}"
-          echo "Pubkey:   ${PUBKEY}"
-          echo "Timestamp: ${TIMESTAMP}"
-          echo ""
-
-          # Compare Value X with the environment variable set by the shim
-          if [ "${BOUNTYNET_VALUE_X:-}" = "${VALUE_X}" ]; then
-            echo "Value X matches shim environment: PASS"
-          else
-            echo "Value X from endpoint: ${VALUE_X}"
-            echo "Value X from env:      ${BOUNTYNET_VALUE_X:-not set}"
-            echo "(Mismatch is OK if env not set)"
-          fi
-
-          echo ""
-          echo "=== Attestation Complete ==="
-          echo "The runner is attested and serving live quotes."
-          echo "Full verification (Layer 2) can be done by fetching the platform_quote"
-          echo "and validating the TEE signature chain."
+      - name: Hosted site TEE smoke
+        run: |
+          set -euo pipefail
+          v2/packaging/smoke-local-site.sh --mode tee --timeout 300
