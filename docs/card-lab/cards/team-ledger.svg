@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Team Ledger Runcard</title>
+  <desc id="desc">A team scorecard showing aggregate proof, token totals, capture mix, and assurance distribution.</desc>
+  <defs></defs>
+
+<rect x="0" y="0" width="1200" height="630" rx="0" fill="#f6f2e7" stroke="none" stroke-width="1" opacity="1"/>
+<rect x="40" y="38" width="1120" height="554" rx="18" fill="#fffdf6" stroke="#1c1b17" stroke-width="3" opacity="1"/>
+<rect x="64" y="62" width="290" height="68" rx="10" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+<text x="88" y="106" fill="#fffdf6" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="29" font-weight="900" text-anchor="start">TEAM RUN CARD</text>
+<g>
+  <rect x="905" y="70" width="190" height="34" rx="17" fill="#f4ff5b" stroke="#14130f" stroke-width="1" opacity="1"/>
+  <text x="1000" y="93" fill="#14130f" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="17" font-weight="700" text-anchor="middle">trust over tokens</text>
+</g>
+<text x="76" y="178" fill="#14130f" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="66" font-weight="900" text-anchor="start">Neon Byte Club</text>
+<text x="80" y="221" fill="#4e4b42" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="25" font-weight="650" text-anchor="start">HackTX Autonomous Build-Off</text>
+<rect x="878" y="154" width="220" height="142" rx="16" fill="#1fb7a6" stroke="#14130f" stroke-width="3" opacity="1"/>
+<text x="988" y="202" fill="#081816" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="20" font-weight="850" text-anchor="middle">RANK</text>
+<text x="988" y="267" fill="#fffdf6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="70" font-weight="950" text-anchor="middle">#02</text>
+<g>
+  <rect x="80" y="270" width="238" height="120" rx="10" fill="#fff" stroke="#111" stroke-width="2" opacity="1"/>
+  <rect x="80" y="270" width="12" height="120" rx="6" fill="#ff5a5f" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="108" y="307" fill="#4c4c4c" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="750" text-anchor="start">TOKENS</text>
+  <text x="108" y="352" fill="#111" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="39" font-weight="850" text-anchor="start">1.84M</text>
+  <text x="108" y="376" fill="#4c4c4c" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" text-anchor="start">provider reported</text>
+</g>
+<g>
+  <rect x="343" y="270" width="238" height="120" rx="10" fill="#fff" stroke="#111" stroke-width="2" opacity="1"/>
+  <rect x="343" y="270" width="12" height="120" rx="6" fill="#1fb7a6" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="371" y="307" fill="#4c4c4c" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="750" text-anchor="start">CALLS</text>
+  <text x="371" y="352" fill="#111" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="39" font-weight="850" text-anchor="start">212</text>
+  <text x="371" y="376" fill="#4c4c4c" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" text-anchor="start">gateway + proxy</text>
+</g>
+<g>
+  <rect x="606" y="270" width="238" height="120" rx="10" fill="#fff" stroke="#111" stroke-width="2" opacity="1"/>
+  <rect x="606" y="270" width="12" height="120" rx="6" fill="#f4c430" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="634" y="307" fill="#4c4c4c" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="750" text-anchor="start">MEMBERS</text>
+  <text x="634" y="352" fill="#111" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="39" font-weight="850" text-anchor="start">5 / 5</text>
+  <text x="634" y="376" fill="#4c4c4c" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" text-anchor="start">active installs</text>
+</g>
+<text x="84" y="448" fill="#14130f" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="22" font-weight="850" text-anchor="start">capture mix</text>
+<g>
+  <rect x="230" y="421" width="128" height="34" rx="17" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="294" y="444" fill="#fffdf6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="700" text-anchor="middle">gateway</text>
+</g>
+<g>
+  <rect x="374" y="421" width="152" height="34" rx="17" fill="#1fb7a6" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="450" y="444" fill="#081816" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="700" text-anchor="middle">workbench</text>
+</g>
+<g>
+  <rect x="542" y="421" width="158" height="34" rx="17" fill="#f4ff5b" stroke="#14130f" stroke-width="1" opacity="1"/>
+  <text x="621" y="444" fill="#14130f" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="700" text-anchor="middle">tee space</text>
+</g>
+<g>
+  <rect x="716" y="421" width="130" height="34" rx="17" fill="#ff8d3a" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="781" y="444" fill="#14130f" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="700" text-anchor="middle">browser</text>
+</g>
+<text x="84" y="505" fill="#14130f" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="22" font-weight="850" text-anchor="start">assurance</text>
+<g>
+  <rect x="230" y="490" width="372" height="18" rx="9" fill="#1fb7a6" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="602" y="490" width="93" height="18" rx="0" fill="#f4c430" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="695" y="490" width="25" height="18" rx="9" fill="#ff5a5f" stroke="none" stroke-width="1" opacity="1"/>
+</g>
+<text x="738" y="506" fill="#4e4b42" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700" text-anchor="start">76% attested | 19% managed | 5% participant</text>
+<g transform="translate(947 378)">
+  <rect x="0" y="0" width="112" height="112" rx="8" fill="#fffdf6" stroke="#14130f" stroke-width="2" opacity="1"/>
+  <rect x="6.588235294117647" y="6.588235294117647" width="32.94117647058823" height="32.94117647058823" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="13.176470588235293" y="13.176470588235293" width="19.764705882352942" height="19.764705882352942" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="65.88235294117646" y="6.588235294117647" width="32.94117647058823" height="32.94117647058823" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="72.47058823529412" y="13.176470588235293" width="19.764705882352942" height="19.764705882352942" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="6.588235294117647" y="65.88235294117646" width="32.94117647058823" height="32.94117647058823" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="13.176470588235293" y="72.47058823529412" width="19.764705882352942" height="19.764705882352942" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="46.11764705882353" y="46.11764705882353" width="6.588235294117647" height="19.764705882352942" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="59.29411764705882" y="46.11764705882353" width="13.176470588235293" height="6.588235294117647" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="39.529411764705884" y="72.47058823529412" width="19.764705882352942" height="6.588235294117647" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="65.88235294117646" y="72.47058823529412" width="6.588235294117647" height="19.764705882352942" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="85.6470588235294" y="52.705882352941174" width="13.176470588235293" height="6.588235294117647" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="46.11764705882353" y="92.23529411764706" width="13.176470588235293" height="6.588235294117647" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="92.23529411764706" y="85.6470588235294" width="6.588235294117647" height="13.176470588235293" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="52.705882352941174" y="19.764705882352942" width="6.588235294117647" height="6.588235294117647" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="19.764705882352942" y="52.705882352941174" width="13.176470588235293" height="6.588235294117647" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="79.05882352941177" y="98.8235294117647" width="13.176470588235293" height="6.588235294117647" rx="0" fill="#14130f" stroke="none" stroke-width="1" opacity="1"/>
+</g>
+<text x="1003" y="523" fill="#14130f" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="850" text-anchor="middle">scan receipt</text>
+<line x1="64" y1="562" x2="1136" y2="562" stroke="#14130f" stroke-width="2" opacity="1"/>
+<text x="78" y="580" fill="#4e4b42" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="16" font-weight="650" text-anchor="start">event log root 9b7c...20af | latest quote 43s ago | prize policy min-tokens</text>
+
+</svg>

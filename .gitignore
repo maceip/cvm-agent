@@ -1,4 +1,8 @@
-/target
+.DS_Store
+**/.DS_Store
+/target/
+/v2/target/
+/dist/
 *.swp
 *.swo
 .env

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Team run card for The Esoteric Build Society</title>
+  <desc id="desc">A team runcard mock showing funny esoteric participants, capture coverage, and assurance labels.</desc>
+  <metadata id="runcard-card-json" data-content-type="application/json" data-profile="https://runcard.dev/llm-team-runcard/v1" data-sha256="sha256:demo">{"profile":"https://runcard.dev/llm-team-runcard/v1","team_name":"The Esoteric Build Society","event_name":"Universal","demo":true}</metadata>
+  <rect width="1200" height="630" fill="#f4f6f1"/>
+  <rect x="42" y="38" width="1116" height="554" rx="22" fill="#101111" stroke="#101111" stroke-width="2"/>
+  <rect x="72" y="70" width="292" height="54" rx="12" fill="#f2ff5b"/>
+  <text x="94" y="106" fill="#101111" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="25" font-weight="900">TEAM RUN CARD</text>
+  <text x="74" y="188" fill="#fff8df" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="66" font-weight="950">The Esoteric Build Society</text>
+  <text x="78" y="232" fill="#c9c2a8" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="25" font-weight="700">Universal profile | trust over tokens</text>
+
+  <g transform="translate(80 286)">
+    <rect width="244" height="116" rx="14" fill="#fff8df"/>
+    <rect width="12" height="116" rx="6" fill="#36d7b7"/>
+    <text x="30" y="42" fill="#30332e" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="17" font-weight="850">TOKENS</text>
+    <text x="30" y="87" fill="#101111" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="40" font-weight="950">3.14M</text>
+  </g>
+  <g transform="translate(350 286)">
+    <rect width="244" height="116" rx="14" fill="#fff8df"/>
+    <rect width="12" height="116" rx="6" fill="#ff775d"/>
+    <text x="30" y="42" fill="#30332e" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="17" font-weight="850">CALLS</text>
+    <text x="30" y="87" fill="#101111" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="40" font-weight="950">404</text>
+  </g>
+  <g transform="translate(620 286)">
+    <rect width="244" height="116" rx="14" fill="#fff8df"/>
+    <rect width="12" height="116" rx="6" fill="#ffd166"/>
+    <text x="30" y="42" fill="#30332e" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="17" font-weight="850">MEMBERS</text>
+    <text x="30" y="87" fill="#101111" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="40" font-weight="950">5 / 5</text>
+  </g>
+
+  <g transform="translate(78 448)">
+    <text x="0" y="0" fill="#f2ff5b" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="23" font-weight="900">participants</text>
+    <text x="0" y="38" fill="#fff8df" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="800">Null Monk</text>
+    <text x="170" y="38" fill="#fff8df" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="800">Ariadne's Shell</text>
+    <text x="392" y="38" fill="#fff8df" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="800">Baron von Stacktrace</text>
+    <text x="690" y="38" fill="#fff8df" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="22" font-weight="800">Semicolon Hermit</text>
+    <text x="0" y="76" fill="#c9c2a8" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="21" font-weight="800">Oracle of /dev/null</text>
+  </g>
+
+  <g transform="translate(908 88)">
+    <circle cx="84" cy="84" r="64" fill="#36d7b7" stroke="#fff8df" stroke-width="5"/>
+    <text x="84" y="98" text-anchor="middle" fill="#101111" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="38" font-weight="950">TEE</text>
+    <path d="M84 160v72M84 232l-76 52M84 232l76 52" fill="none" stroke="#ffd166" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="8" cy="284" r="26" fill="#ff775d"/>
+    <circle cx="160" cy="284" r="26" fill="#f2ff5b"/>
+    <circle cx="84" cy="284" r="26" fill="#fff8df"/>
+  </g>
+
+  <rect x="76" y="548" width="720" height="2" fill="#5a594f"/>
+  <text x="78" y="578" fill="#c9c2a8" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="17" font-weight="750">capture: gateway + workbench + browser | assurance labels visible | prompts private</text>
+</svg>

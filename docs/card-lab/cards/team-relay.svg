@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Team Relay Runcard</title>
+  <desc id="desc">A team card showing multiple participants flowing into one verifiable run card.</desc>
+  <defs></defs>
+
+<rect x="0" y="0" width="1200" height="630" rx="0" fill="#12110e" stroke="none" stroke-width="1" opacity="1"/>
+<rect x="44" y="42" width="1112" height="546" rx="22" fill="#191714" stroke="#fbf1d6" stroke-width="2" opacity="1"/>
+<text x="76" y="102" fill="#ffcc4d" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="27" font-weight="900" text-anchor="start">TEAM RELAY</text>
+<text x="75" y="171" fill="#fbf1d6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="76" font-weight="950" text-anchor="start">Shipshape</text>
+<text x="78" y="213" fill="#bfb59a" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="24" font-weight="650" text-anchor="start">Proof graph for 4 builders across 6 agent sessions</text>
+<line x1="145" y1="344" x2="372" y2="270" stroke="#39d6c6" stroke-width="8" opacity="1"/>
+<line x1="145" y1="344" x2="447" y2="394" stroke="#ff745f" stroke-width="8" opacity="1"/>
+<line x1="372" y1="270" x2="650" y2="230" stroke="#ffcc4d" stroke-width="8" opacity="1"/>
+<line x1="447" y1="394" x2="685" y2="438" stroke="#39d6c6" stroke-width="8" opacity="1"/>
+<line x1="650" y1="230" x2="916" y2="318" stroke="#ff745f" stroke-width="8" opacity="1"/>
+<line x1="685" y1="438" x2="916" y2="318" stroke="#ffcc4d" stroke-width="8" opacity="1"/>
+<g>
+  <circle cx="145" cy="344" r="45" fill="#39d6c6" stroke="#fbf1d6" stroke-width="3"/>
+  <text x="145" y="355" fill="#12110e" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="29" font-weight="950" text-anchor="middle">AL</text>
+</g>
+<g>
+  <circle cx="372" cy="270" r="45" fill="#ffcc4d" stroke="#fbf1d6" stroke-width="3"/>
+  <text x="372" y="281" fill="#12110e" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="29" font-weight="950" text-anchor="middle">JU</text>
+</g>
+<g>
+  <circle cx="447" cy="394" r="45" fill="#ff745f" stroke="#fbf1d6" stroke-width="3"/>
+  <text x="447" y="405" fill="#12110e" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="29" font-weight="950" text-anchor="middle">KE</text>
+</g>
+<g>
+  <circle cx="650" cy="230" r="45" fill="#39d6c6" stroke="#fbf1d6" stroke-width="3"/>
+  <text x="650" y="241" fill="#12110e" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="29" font-weight="950" text-anchor="middle">MO</text>
+</g>
+<g>
+  <circle cx="685" cy="438" r="45" fill="#ffcc4d" stroke="#fbf1d6" stroke-width="3"/>
+  <text x="685" y="449" fill="#12110e" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="29" font-weight="950" text-anchor="middle">AI</text>
+</g>
+<g>
+  <circle cx="916" cy="318" r="45" fill="#fbf1d6" stroke="#fbf1d6" stroke-width="3"/>
+  <text x="916" y="329" fill="#12110e" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="29" font-weight="950" text-anchor="middle">RC</text>
+</g>
+<rect x="74" y="476" width="560" height="68" rx="12" fill="#fbf1d6" stroke="#fbf1d6" stroke-width="1" opacity="1"/>
+<text x="102" y="519" fill="#191714" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="24" font-weight="900" text-anchor="start">active path: managed keys + strict workbench</text>
+<rect x="706" y="82" width="366" height="140" rx="16" fill="#23211c" stroke="#fbf1d6" stroke-width="2" opacity="1"/>
+<text x="734" y="125" fill="#ffcc4d" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="19" font-weight="900" text-anchor="start">TEAM TOTAL</text>
+<text x="734" y="181" fill="#fbf1d6" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="45" font-weight="950" text-anchor="start">684k tokens</text>
+<rect x="706" y="448" width="366" height="92" rx="16" fill="#23211c" stroke="#fbf1d6" stroke-width="2" opacity="1"/>
+<text x="734" y="485" fill="#fbf1d6" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="19" font-weight="850" text-anchor="start">assurance: attested 61%</text>
+<text x="734" y="518" fill="#bfb59a" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="19" font-weight="750" text-anchor="start">managed keys 39%</text>
+<g transform="translate(1012 466)">
+  <rect x="0" y="0" width="74" height="74" rx="8" fill="#fbf1d6" stroke="#191714" stroke-width="2" opacity="1"/>
+  <rect x="4.352941176470588" y="4.352941176470588" width="21.76470588235294" height="21.76470588235294" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="8.705882352941176" y="8.705882352941176" width="13.058823529411764" height="13.058823529411764" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="43.52941176470588" y="4.352941176470588" width="21.76470588235294" height="21.76470588235294" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="47.882352941176464" y="8.705882352941176" width="13.058823529411764" height="13.058823529411764" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="4.352941176470588" y="43.52941176470588" width="21.76470588235294" height="21.76470588235294" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="8.705882352941176" y="47.882352941176464" width="13.058823529411764" height="13.058823529411764" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="30.470588235294116" y="30.470588235294116" width="4.352941176470588" height="13.058823529411764" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="39.17647058823529" y="30.470588235294116" width="8.705882352941176" height="4.352941176470588" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="26.11764705882353" y="47.882352941176464" width="13.058823529411764" height="4.352941176470588" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="43.52941176470588" y="47.882352941176464" width="4.352941176470588" height="13.058823529411764" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="56.588235294117645" y="34.8235294117647" width="8.705882352941176" height="4.352941176470588" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="30.470588235294116" y="60.94117647058823" width="8.705882352941176" height="4.352941176470588" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="60.94117647058823" y="56.588235294117645" width="4.352941176470588" height="8.705882352941176" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="34.8235294117647" y="13.058823529411764" width="4.352941176470588" height="4.352941176470588" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="13.058823529411764" y="34.8235294117647" width="8.705882352941176" height="4.352941176470588" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="52.23529411764706" y="65.29411764705881" width="8.705882352941176" height="4.352941176470588" rx="0" fill="#191714" stroke="none" stroke-width="1" opacity="1"/>
+</g>
+<text x="76" y="576" fill="#bfb59a" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="18" font-weight="700" text-anchor="start">proof over claims | latest event: claude-code call captured by gateway 18s ago</text>
+
+</svg>

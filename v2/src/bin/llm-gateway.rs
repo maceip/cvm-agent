@@ -4,15 +4,19 @@
 //! `LLM_ATTESTED.md`: provider-shaped requests go in, upstream responses come
 //! back, and a signed `ContestEvent` is appended to the event log.
 
+#![forbid(unsafe_code)]
+
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use bountynet::http_service::{
+    serve_hyper, write_json, write_rate_limited, write_response, write_response_with_headers,
+    BufferedResponse as HttpConn, CorsHeaders, HandlerFuture, HttpRequest, HttpServerConfig,
+};
 use bountynet::llm_attested::{
     build_capture_ra_claim, insert_capture_ra_evidence, random_id, sha256_prefixed, CaptureRaClaim,
     ContestEvent, ContestManifest, EventActor, TrustPolicy,
 };
-use bountynet::llm_attested_net::{
-    retry_after_secs, PersistentRateLimiter, RateLimitDecision, RateLimitPolicy,
-};
+use bountynet::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
 use ed25519_dalek::SigningKey;
 use rand::RngCore;
 use reqwest::header::{HeaderName, HeaderValue};
@@ -21,10 +25,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, Semaphore};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
 
 const ZERO_HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -72,21 +74,13 @@ struct GatewayState {
     upstream_key: Option<String>,
     http: reqwest::Client,
     chains: Mutex<HashMap<String, TeamChain>>,
-    limiter: Arc<PersistentRateLimiter>,
+    limiter: Arc<ServiceRateLimiter>,
 }
 
 #[derive(Debug, Clone)]
 struct TeamChain {
     next_index: u64,
     previous_hash: String,
-}
-
-#[derive(Debug)]
-struct HttpRequest {
-    method: String,
-    path: String,
-    headers: BTreeMap<String, String>,
-    body: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -99,8 +93,6 @@ struct UpstreamResult {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-
     let cfg = parse_args()?;
     if let Some(parent) = cfg.event_log_path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -162,8 +154,8 @@ async fn main() -> Result<()> {
     };
 
     let limiter = Arc::new(
-        PersistentRateLimiter::load(cfg.rate_state_path.clone(), 200_000)
-            .context("load gateway rate limit state")?,
+        ServiceRateLimiter::load(cfg.rate_state_path.clone(), 200_000)
+            .context("initialize gateway governor rate limiter")?,
     );
 
     let state = Arc::new(GatewayState {
@@ -193,40 +185,41 @@ async fn main() -> Result<()> {
         );
     }
     eprintln!("[llm-gateway] event log {}", cfg.event_log_path.display());
-    eprintln!("[llm-gateway] rate state {}", cfg.rate_state_path.display());
+    eprintln!(
+        "[llm-gateway] rate limiter governor with persisted backoff state {}",
+        cfg.rate_state_path.display()
+    );
 
-    let listener = TcpListener::bind(&cfg.listen)
-        .await
-        .with_context(|| format!("bind {}", cfg.listen))?;
-    let concurrency = Arc::new(Semaphore::new(cfg.max_connections));
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        let Ok(permit) = concurrency.clone().try_acquire_owned() else {
-            tokio::spawn(async move {
-                let mut stream = stream;
-                let _ = write_json(
-                    &mut stream,
-                    503,
-                    &serde_json::json!({"error": "gateway overloaded"}),
-                )
-                .await;
-            });
-            continue;
-        };
-        let state = state.clone();
-        tokio::spawn(async move {
-            let _permit = permit;
-            if let Err(e) = handle_connection(stream, state, addr).await {
-                eprintln!("[llm-gateway] request from {addr} failed: {e}");
-            }
-        });
-    }
+    serve_hyper(
+        HttpServerConfig {
+            service_name: "llm-gateway",
+            listen: cfg.listen.clone(),
+            max_connections: cfg.max_connections,
+            read_timeout_ms: cfg.read_timeout_ms,
+            body_limit_bytes: 10 * 1024 * 1024,
+            cors: CorsHeaders::new("authorization, content-type, x-llm-attested-agent")
+                .with_expose("x-llm-attested-event-id, x-llm-attested-team-root"),
+            tls_acceptor: None,
+        },
+        state,
+        gateway_handler,
+    )
+    .await
+}
+
+fn gateway_handler(state: Arc<GatewayState>, peer: SocketAddr, req: HttpRequest) -> HandlerFuture {
+    Box::pin(async move {
+        let mut response = HttpConn::default();
+        handle_connection(&mut response, state, peer, req).await?;
+        Ok(response)
+    })
 }
 
 async fn handle_connection(
-    mut stream: TcpStream,
+    stream: &mut HttpConn,
     state: Arc<GatewayState>,
     peer: SocketAddr,
+    req: HttpRequest,
 ) -> Result<()> {
     let ip_decision = state.limiter.check(
         format!("gateway:ip:{}", peer.ip()),
@@ -237,36 +230,17 @@ async fn handle_connection(
         .with_backoff(1_000, 60_000),
     )?;
     if !ip_decision.allowed {
-        return write_rate_limited(&mut stream, ip_decision).await;
+        return write_rate_limited(stream, ip_decision).await;
     }
 
-    let read = tokio::time::timeout(
-        Duration::from_millis(state.cfg.read_timeout_ms),
-        read_http_request(&mut stream),
-    )
-    .await;
-    let Some(req) = (match read {
-        Ok(req) => req?,
-        Err(_) => {
-            return write_json(
-                &mut stream,
-                408,
-                &serde_json::json!({"error": "request timed out"}),
-            )
-            .await;
-        }
-    }) else {
-        return Ok(());
-    };
-
     if req.method == "OPTIONS" {
-        return write_response(&mut stream, 204, "text/plain", Vec::new(), Vec::new()).await;
+        return write_response(stream, 204, "text/plain", Vec::new()).await;
     }
 
     match (req.method.as_str(), req.path.as_str()) {
         ("GET", "/healthz") => {
             write_json(
-                &mut stream,
+                stream,
                 200,
                 &serde_json::json!({
                     "ok": true,
@@ -278,28 +252,21 @@ async fn handle_connection(
         }
         ("GET", "/.well-known/llm-attested/manifest.cbor") => {
             let body = state.manifest.to_cbor().context("encode manifest")?;
-            write_response(&mut stream, 200, "application/cbor", Vec::new(), body).await
+            write_response(stream, 200, "application/cbor", body).await
         }
         ("GET", "/.well-known/llm-attested/manifest.json") => {
-            write_json(&mut stream, 200, &state.manifest).await
+            write_json(stream, 200, &state.manifest).await
         }
         ("GET", "/.well-known/runcard/receipt") => {
             let Some(receipt) = &state.cfg.runcard_receipt_body else {
                 return write_json(
-                    &mut stream,
+                    stream,
                     404,
                     &serde_json::json!({"error": "runcard receipt not configured"}),
                 )
                 .await;
             };
-            write_response(
-                &mut stream,
-                200,
-                "application/cbor",
-                Vec::new(),
-                receipt.clone(),
-            )
-            .await
+            write_response(stream, 200, "application/cbor", receipt.clone()).await
         }
         _ if req.method == "POST" && req.path.starts_with("/v1/") => {
             let team_id = match authenticate_team(&req, &state.cfg.teams) {
@@ -314,10 +281,10 @@ async fn handle_connection(
                         .with_backoff(2_000, 300_000),
                     )?;
                     if !auth_decision.allowed {
-                        return write_rate_limited(&mut stream, auth_decision).await;
+                        return write_rate_limited(stream, auth_decision).await;
                     }
                     return write_json(
-                        &mut stream,
+                        stream,
                         401,
                         &serde_json::json!({"error": "missing or invalid team API key"}),
                     )
@@ -333,16 +300,16 @@ async fn handle_connection(
                 .with_backoff(1_000, 120_000),
             )?;
             if !team_decision.allowed {
-                return write_rate_limited(&mut stream, team_decision).await;
+                return write_rate_limited(stream, team_decision).await;
             }
-            handle_model_request(&mut stream, state, req, team_id).await
+            handle_model_request(stream, state, req, team_id).await
         }
-        _ => write_json(&mut stream, 404, &serde_json::json!({"error": "not found"})).await,
+        _ => write_json(stream, 404, &serde_json::json!({"error": "not found"})).await,
     }
 }
 
 async fn handle_model_request(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<GatewayState>,
     req: HttpRequest,
     team_id: String,
@@ -370,7 +337,7 @@ async fn handle_model_request(
         ("x-llm-attested-event-id".to_string(), event_id),
         ("x-llm-attested-team-root".to_string(), team_root),
     ];
-    write_response(
+    write_response_with_headers(
         stream,
         upstream.status,
         &upstream.content_type,
@@ -642,171 +609,6 @@ fn api_family(path: &str) -> &'static str {
         "openai-chat-completions"
     } else {
         "openai-compatible"
-    }
-}
-
-async fn read_http_request(stream: &mut TcpStream) -> Result<Option<HttpRequest>> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 8192];
-    let header_end;
-
-    loop {
-        let n = stream.read(&mut tmp).await.context("read request")?;
-        if n == 0 {
-            return Ok(None);
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 2 * 1024 * 1024 {
-            return Err(anyhow!("request headers too large"));
-        }
-        if let Some(pos) = find_header_end(&buf) {
-            header_end = pos;
-            break;
-        }
-    }
-
-    let head = String::from_utf8_lossy(&buf[..header_end]);
-    let mut lines = head.split("\r\n");
-    let request_line = lines
-        .next()
-        .ok_or_else(|| anyhow!("missing request line"))?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts
-        .next()
-        .ok_or_else(|| anyhow!("missing method"))?
-        .to_string();
-    let path = parts
-        .next()
-        .ok_or_else(|| anyhow!("missing path"))?
-        .to_string();
-
-    let mut headers = BTreeMap::new();
-    for line in lines {
-        if let Some((name, value)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
-        }
-    }
-
-    let content_length = headers
-        .get("content-length")
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(0);
-    if content_length > 10 * 1024 * 1024 {
-        return Err(anyhow!("request body too large"));
-    }
-
-    let body_start = header_end + 4;
-    while buf.len() < body_start + content_length {
-        let n = stream.read(&mut tmp).await.context("read request body")?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-    }
-
-    let body = buf
-        .get(body_start..body_start + content_length)
-        .unwrap_or_default()
-        .to_vec();
-
-    Ok(Some(HttpRequest {
-        method,
-        path,
-        headers,
-        body,
-    }))
-}
-
-fn find_header_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4).position(|w| w == b"\r\n\r\n")
-}
-
-async fn write_json<T: serde::Serialize>(
-    stream: &mut TcpStream,
-    status: u16,
-    value: &T,
-) -> Result<()> {
-    write_json_with_headers(stream, status, Vec::new(), value).await
-}
-
-async fn write_json_with_headers<T: serde::Serialize>(
-    stream: &mut TcpStream,
-    status: u16,
-    extra_headers: Vec<(String, String)>,
-    value: &T,
-) -> Result<()> {
-    let body = serde_json::to_vec_pretty(value).context("encode json response")?;
-    write_response(stream, status, "application/json", extra_headers, body).await
-}
-
-async fn write_rate_limited(stream: &mut TcpStream, decision: RateLimitDecision) -> Result<()> {
-    let retry_after = retry_after_secs(decision.retry_after_ms).to_string();
-    write_json_with_headers(
-        stream,
-        429,
-        vec![
-            ("Retry-After".to_string(), retry_after),
-            ("x-ratelimit-limit".to_string(), decision.limit.to_string()),
-            (
-                "x-ratelimit-remaining".to_string(),
-                decision.remaining.to_string(),
-            ),
-        ],
-        &serde_json::json!({
-            "error": "rate limited",
-            "retry_after_ms": decision.retry_after_ms,
-        }),
-    )
-    .await
-}
-
-async fn write_response(
-    stream: &mut TcpStream,
-    status: u16,
-    content_type: &str,
-    extra_headers: Vec<(String, String)>,
-    body: Vec<u8>,
-) -> Result<()> {
-    let mut response = format!(
-        "HTTP/1.1 {status} {}\r\n\
-         Content-Type: {content_type}\r\n\
-         Content-Length: {}\r\n\
-         Access-Control-Allow-Origin: *\r\n\
-         Access-Control-Allow-Headers: authorization, content-type, x-llm-attested-agent\r\n\
-         Access-Control-Expose-Headers: x-llm-attested-event-id, x-llm-attested-team-root\r\n\
-         Connection: close\r\n",
-        status_text(status),
-        body.len()
-    );
-    for (name, value) in extra_headers {
-        response.push_str(&format!("{name}: {value}\r\n"));
-    }
-    response.push_str("\r\n");
-
-    stream
-        .write_all(response.as_bytes())
-        .await
-        .context("write response headers")?;
-    stream
-        .write_all(&body)
-        .await
-        .context("write response body")?;
-    let _ = stream.shutdown().await;
-    Ok(())
-}
-
-fn status_text(status: u16) -> &'static str {
-    match status {
-        200 => "OK",
-        204 => "No Content",
-        400 => "Bad Request",
-        401 => "Unauthorized",
-        408 => "Request Timeout",
-        429 => "Too Many Requests",
-        404 => "Not Found",
-        500 => "Internal Server Error",
-        503 => "Service Unavailable",
-        _ => "OK",
     }
 }
 
@@ -1123,7 +925,7 @@ fn print_usage() {
     eprintln!("  --capture-method gateway_proxy");
     eprintln!("  --assurance routed");
     eprintln!("  --events ./llm-events.cborl");
-    eprintln!("  --rate-state ./llm-gateway-rate-state.json");
+    eprintln!("  --rate-state ./llm-gateway-rate-state.json  (deprecated compatibility; governor is in-process)");
     eprintln!("  --max-connections 512");
     eprintln!("  --read-timeout-ms 5000");
     eprintln!("  --ip-requests-per-minute 600");

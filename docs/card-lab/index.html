@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Runcard Card Lab</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #151515;
+      --muted: #5d625b;
+      --paper: #f7f4ea;
+      --line: #252525;
+      --aqua: #18b7a6;
+      --gold: #f4c430;
+      --coral: #ff745f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+    }
+    header, main, footer {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+    }
+    header {
+      padding: 34px 0 22px;
+      border-bottom: 2px solid var(--line);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 0 14px;
+      color: #fff;
+      background: var(--ink);
+      border-radius: 999px;
+      font-family: SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace;
+      font-size: 15px;
+      font-weight: 800;
+    }
+    h1 {
+      max-width: 820px;
+      margin: 18px 0 10px;
+      font-size: clamp(44px, 7vw, 84px);
+      line-height: 0.95;
+    }
+    p {
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 19px;
+      line-height: 1.5;
+    }
+    section {
+      padding: 40px 0;
+      border-bottom: 2px solid var(--line);
+    }
+    h2 {
+      margin: 0 0 18px;
+      font-size: 34px;
+      line-height: 1.1;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+    }
+    article {
+      min-width: 0;
+      padding: 14px;
+      background: #fffdf6;
+      border: 2px solid var(--line);
+      border-radius: 12px;
+    }
+    article img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid rgba(0, 0, 0, 0.18);
+      border-radius: 8px;
+      background: #fff;
+    }
+    article h3 {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 12px 0 6px;
+      font-size: 22px;
+      line-height: 1.1;
+    }
+    article h3 span {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-family: SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace;
+      font-size: 14px;
+      font-weight: 800;
+    }
+    article p {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+    article a {
+      color: var(--ink);
+      font-family: SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace;
+      font-weight: 800;
+    }
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 18px;
+    }
+    .note {
+      padding: 16px;
+      background: #fffdf6;
+      border: 2px solid var(--line);
+      border-radius: 12px;
+    }
+    .note strong {
+      display: block;
+      margin-bottom: 8px;
+      font-family: SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace;
+      font-size: 17px;
+    }
+    footer {
+      padding: 30px 0 44px;
+      color: var(--muted);
+      font-family: SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace;
+      font-weight: 700;
+    }
+    @media (max-width: 860px) {
+      .grid, .notes {
+        grid-template-columns: 1fr;
+      }
+      h1 {
+        font-size: 46px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="eyebrow">Runcard card lab</span>
+    <h1>Team cards for competitions. Individual cards for proof culture.</h1>
+    <p>Eight SVG concepts for the LLM Attested surface. The cards intentionally share a narrow data vocabulary so the renderer can stay small while the skins stay expressive.</p>
+  </header>
+  <main>
+    <section>
+      <h2>Team Cards</h2>
+      <div class="grid">
+        <article>
+          <img src="cards/team-ledger.svg" alt="Team Ledger card preview">
+          <h3>Team Ledger <span>team</span></h3>
+          <p>Public scoreboard card for teams that want proof, rank, and fairness at a glance.</p>
+          <a href="cards/team-ledger.svg">open svg</a>
+        </article>
+        <article>
+          <img src="cards/team-relay.svg" alt="Team Relay card preview">
+          <h3>Team Relay <span>team</span></h3>
+          <p>Makes the team feel like a coordinated system instead of one shared API key.</p>
+          <a href="cards/team-relay.svg">open svg</a>
+        </article>
+        <article>
+          <img src="cards/team-scoreline.svg" alt="Team Scoreline card preview">
+          <h3>Team Scoreline <span>team</span></h3>
+          <p>Built for organizers who want challenge formats to be legible from across a room.</p>
+          <a href="cards/team-scoreline.svg">open svg</a>
+        </article>
+        <article>
+          <img src="cards/team-terminal.svg" alt="Team Terminal card preview">
+          <h3>Team Terminal <span>team</span></h3>
+          <p>The least marketing-shaped team card: terse, inspectable, and easy to embed.</p>
+          <a href="cards/team-terminal.svg">open svg</a>
+        </article>
+      </div>
+    </section>
+    <section>
+      <h2>Individual Cards</h2>
+      <div class="grid">
+        <article>
+          <img src="cards/individual-passport.svg" alt="Individual Passport card preview">
+          <h3>Individual Passport <span>individual</span></h3>
+          <p>Daily-use card for a hacker who wants a recognizable personal proof object.</p>
+          <a href="cards/individual-passport.svg">open svg</a>
+        </article>
+        <article>
+          <img src="cards/individual-signal.svg" alt="Individual Signal card preview">
+          <h3>Individual Signal <span>individual</span></h3>
+          <p>Best for streaming or profile use where the card should feel alive without becoming busy.</p>
+          <a href="cards/individual-signal.svg">open svg</a>
+        </article>
+        <article>
+          <img src="cards/individual-tokenstream.svg" alt="Individual Tokenstream card preview">
+          <h3>Individual Tokenstream <span>individual</span></h3>
+          <p>For people who want to prove that the token burn is real and publicly inspectable.</p>
+          <a href="cards/individual-tokenstream.svg">open svg</a>
+        </article>
+        <article>
+          <img src="cards/individual-pocket.svg" alt="Individual Pocket card preview">
+          <h3>Individual Pocket <span>individual</span></h3>
+          <p>The card that can survive being shrunk, screenshotted, or pasted into a profile.</p>
+          <a href="cards/individual-pocket.svg">open svg</a>
+        </article>
+      </div>
+    </section>
+    <section>
+      <h2>Design Rules</h2>
+      <p>The useful split is not just visual. Team cards aggregate fairness signals for judging. Individual cards make daily attestation and usage feel worth showing off.</p>
+      <div class="notes">
+        <div class="note"><strong>Small vocabulary</strong>Every skin uses subject, capture path, assurance, enforcement, token source, latest event, and receipt URL.</div>
+        <div class="note"><strong>Honest labels</strong>Cards say provider-reported, estimated, participant-controlled, managed, or attested instead of collapsing everything into verified.</div>
+        <div class="note"><strong>Embeddable first</strong>Each concept is 1200x630 SVG, readable when scaled down, and suitable for social cards, dashboards, and README embeds.</div>
+      </div>
+    </section>
+  </main>
+  <footer>Generated from docs/card-lab/scripts/generate-card-concepts.mjs</footer>
+</body>
+</html>

@@ -1,4 +1,5 @@
 pub mod eat;
+pub mod http_service;
 pub mod llm_attested;
 pub mod llm_attested_net;
 pub mod llm_capture;

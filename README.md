@@ -2,6 +2,9 @@
 
 Runcard is proof before privilege for agentic software.
 
+The current LLM Attested implementation lives in `v2/`. Start with
+`v2/README.md` for service entrypoints and `REPO_STRUCTURE.md` for the repo map.
+
 Before an app gives an agent, MCP server, package, deploy job, or service real
 power, it should be able to ask one practical question:
 

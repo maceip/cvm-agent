@@ -1,12 +1,15 @@
 <!doctype html>
-<html lang="en" data-webtui-theme="cs16">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Runcard - proof before privilege</title>
+  <title>Runcard - LLM Attested</title>
+  <meta name="description" content="Runcard records captured LLM work as signed receipts and renders team and individual run cards with explicit assurance labels.">
+  <meta property="og:title" content="Runcard - LLM Attested">
+  <meta property="og:description" content="Signed capture receipts, explicit trust labels, team cards, and individual signal cards.">
+  <meta property="og:image" content="assets/llm-signal-card.svg">
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="assets/webtui/cs.css">
-  <link rel="stylesheet" href="assets/runcard.css?v=20260517">
+  <link rel="stylesheet" href="assets/runcard.css?v=20260519">
 </head>
 <body>
   <header class="site-header">
@@ -14,12 +17,12 @@
       <span class="brand-mark">RC</span>
       <span>Runcard</span>
     </a>
-    <nav is-="toolbar" class="top-nav" aria-label="Primary navigation">
-      <a href="#chain">chain</a>
-      <a href="#uses">uses</a>
-      <a href="#card">card</a>
-      <a href="#proof">proof</a>
-      <a href="#repo">repo</a>
+    <nav class="top-nav" aria-label="Primary navigation">
+      <a href="#cards">cards</a>
+      <a href="#capture">capture</a>
+      <a href="#infra">infra</a>
+      <a href="#trust">trust</a>
+      <a href="card-lab/">card lab</a>
       <a href="https://github.com/maceip/runcards">github</a>
     </nav>
   </header>
@@ -27,307 +30,287 @@
   <main id="top">
     <section class="hero band">
       <div class="hero-copy">
-        <span is-="badge" variant-="primary">attested runtime card</span>
-        <h1>Run cards for software that asks for power.</h1>
+        <p class="kicker">LLM Attested</p>
+        <h1>Run cards for captured model work.</h1>
         <p class="lede">
-          Runcard turns this repo's Stage 0 and Stage 1 attestation chain into
-          a small object an app can check before it releases a token, secret,
-          deploy right, filesystem tool, or customer data.
+          Runcard turns LLM-related actions into signed receipts. The public
+          card says what was captured, how it was captured, what counted as
+          evidence, and where the verifier can fetch the proof.
         </p>
         <p>
-          The technical core is already here: a TEE build receipt, a runtime
-          receipt, attested TLS, hardware quote verification, and a chain walk
-          back to the source identity called <code>Value X</code>.
+          It does not claim magic. A card proves a stream of captured events. It
+          does not prove that no other model, account, browser, phone, or laptop
+          was used.
         </p>
         <div class="hero-actions">
-          <a is-="button" variant-="primary" href="#chain">inspect chain</a>
-          <a is-="button" box-="square" href="#proof">run browser proof</a>
+          <a class="button primary" href="#capture">capture paths</a>
+          <a class="button" href="#trust">trust assumptions</a>
         </div>
       </div>
 
-      <aside class="hero-console" is-="tilt" glare- data-tilt data-tilt-max="5" aria-label="Runcard proof summary">
-        <div class="window-title">
-          <span>runcard://support-flow</span>
-          <span is-="badge" variant-="success">verified</span>
-        </div>
-<pre is-="pre" size-="small">stage0: quote binds source_hash + artifact_hash + value_x
-stage1: quote binds previous_receipt + tls_spki_hash
-client: cert carries EAT, verifier walks chain
-gate: policy decides whether privilege is released</pre>
-        <img src="assets/runcard-card.svg" alt="Runcard verified card preview" class="hero-card-image">
-      </aside>
+      <div class="hero-cards" aria-label="Example runcards">
+        <img src="assets/llm-team-card.svg" alt="Example team runcard for The Esoteric Build Society">
+        <img src="assets/llm-signal-card.svg" alt="Example individual signal runcard for a solo developer">
+      </div>
     </section>
 
-    <section id="chain" class="band">
+    <section id="cards" class="band">
       <div class="section-heading">
-        <span is-="badge" variant-="info">implementation</span>
-        <h2>The card is backed by the existing proof chain.</h2>
+        <p class="kicker">public surfaces</p>
+        <h2>One card for the team. One card for the person.</h2>
         <p>
-          Runcard is not a new claim on top of the codebase. It is the developer
-          surface for the chain implemented under <code>v2/</code>.
+          Hackathons are judged by team. Daily proof is shown by individuals.
+          The data model supports both without changing capture infrastructure.
         </p>
       </div>
 
-      <div class="chain-grid">
-        <article is-="card" box-="square" class="chain-card">
-          <div is-="card-title">Stage 0 / build</div>
-          <p>Runs in TEE hardware, freezes the source tree, runs the build, hashes
-          the artifact, computes <code>Value X</code>, and emits EAT CBOR.</p>
-          <ul class="plain-list">
-            <li>source hash before build</li>
-            <li>read-only source snapshot</li>
-            <li>artifact hash after build</li>
-            <li>TEE quote over EAT binding bytes</li>
-          </ul>
+      <div class="showcase-grid">
+        <article class="showcase">
+          <img src="assets/llm-team-card.svg" alt="Team runcard preview">
+          <h3>Team card</h3>
+          <p>
+            Aggregates members, captured events, token stats, capture methods,
+            assurance labels, and proof links for judging.
+          </p>
         </article>
-
-        <article is-="card" box-="square" class="chain-card">
-          <div is-="card-title">Stage 1 / runtime</div>
-          <p>Loads the Stage 0 receipt, verifies it, recomputes <code>Value X</code>
-          from disk, generates a TLS key inside the TEE, and collects a fresh
-          runtime quote.</p>
-          <ul class="plain-list">
-            <li>previous attestation hash</li>
-            <li>runtime quote bound to TLS key</li>
-            <li>attested TLS certificate</li>
-            <li>chain continuity check</li>
-          </ul>
-        </article>
-
-        <article is-="card" box-="square" class="chain-card">
-          <div is-="card-title">Client / gate</div>
-          <p>Fetches the running service, extracts the EAT from the TLS cert,
-          verifies the platform quote, checks the SPKI binding, walks the
-          previous receipt, then applies project policy.</p>
-          <ul class="plain-list">
-            <li>Intel TDX, AMD SEV-SNP, AWS Nitro paths</li>
-            <li>pinned vendor roots</li>
-            <li>stable Value X across stages</li>
-            <li>allow or deny privilege</li>
-          </ul>
+        <article class="showcase">
+          <img src="assets/llm-signal-card.svg" alt="Individual signal runcard preview">
+          <h3>Individual signal</h3>
+          <p>
+            Tracks one participant or agent session. It is suitable for a
+            profile README because it is a plain SVG with embedded metadata.
+          </p>
         </article>
       </div>
     </section>
 
-    <section id="uses" class="band split">
-      <div>
-        <div class="section-heading compact">
-          <span is-="badge" variant-="warning">where it matters</span>
-          <h2>Use it at the boundary where software gets authority.</h2>
-        </div>
-        <p>
-          Most developers do not wake up caring about attestation. They do care
-          when a model-controlled workflow is about to get a write token, a
-          deploy job, a shell, or production data. Runcard makes that boundary
-          checkable.
-        </p>
-      </div>
-
-      <div is-="tabs" class="usage-tabs">
-        <div is-="tabs-list" role="tablist" aria-label="Runcard use cases">
-          <button id="tab-app" is-="tabs-trigger" type="button" role="tab" aria-selected="true" aria-controls="panel-app" data-tab="app">app gate</button>
-          <button id="tab-mcp" is-="tabs-trigger" type="button" role="tab" aria-selected="false" aria-controls="panel-mcp" data-tab="mcp">mcp</button>
-          <button id="tab-ci" is-="tabs-trigger" type="button" role="tab" aria-selected="false" aria-controls="panel-ci" data-tab="ci">ci</button>
-          <button id="tab-secrets" is-="tabs-trigger" type="button" role="tab" aria-selected="false" aria-controls="panel-secrets" data-tab="secrets">secrets</button>
-        </div>
-        <div class="tab-panels">
-          <section id="panel-app" class="tab-panel is-active" role="tabpanel" aria-labelledby="tab-app" data-panel="app">
-<pre is-="pre" size-="small">const verdict = await runcard.verify(target, {
-  source: "github.com/acme/support-flow",
-  ref: "refs/heads/main",
-  requireReviewedCommit: true
-});
-
-if (verdict.ok) {
-  await tools.enable("write:issues");
-}</pre>
-          </section>
-          <section id="panel-mcp" class="tab-panel" role="tabpanel" aria-labelledby="tab-mcp" data-panel="mcp" hidden>
-<pre is-="pre" size-="small">tools:
-  verify_runtime
-  explain_receipt
-  should_release_secret
-  verify_artifact
-
-deny:
-  - shell.exec
-  - database.write
-  - browser.autofill</pre>
-          </section>
-          <section id="panel-ci" class="tab-panel" role="tabpanel" aria-labelledby="tab-ci" data-panel="ci" hidden>
-<pre is-="pre" size-="small">- uses: maceip/runcards/v2/action@main
-  with:
-    source: .
-    cmd: npm ci && npm test && npm run build
-
-runcard gate --receipt proof-receipt.json --policy .runcard.yml</pre>
-          </section>
-          <section id="panel-secrets" class="tab-panel" role="tabpanel" aria-labelledby="tab-secrets" data-panel="secrets" hidden>
-<pre is-="pre" size-="small">source: github.com/acme/support-flow
-ref: refs/heads/main
-allow:
-  secrets:
-    - PROD_SUPPORT_TOKEN
-    - STRIPE_READONLY_KEY</pre>
-          </section>
-        </div>
-      </div>
-    </section>
-
-    <section id="card" class="band card-band">
+    <section id="capture" class="band">
       <div class="section-heading">
-        <span is-="badge" variant-="success">shareable object</span>
-        <h2>The output should be a card, not a paragraph about trust.</h2>
+        <p class="kicker">capture sources</p>
+        <h2>Different paths, different claims.</h2>
         <p>
-          A Runcard is the small thing a README, package page, PR check, agent
-          directory, or service dashboard can show. The receipt behind it stays
-          machine-verifiable.
+          Each capture source writes the same signed event envelope. The card
+          labels the source and assurance instead of flattening everything into
+          "verified."
         </p>
       </div>
 
-      <div class="card-layout">
-        <div is-="frame" box-="square" class="runcard-preview-frame">
-          <div is-="frame-title">runcard.svg</div>
-          <img src="assets/runcard-card.svg" alt="Runcard verified card preview" class="badge-preview">
-        </div>
+      <div class="capture-grid">
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="Attested gateway diagram">
+            <rect x="18" y="48" width="118" height="86" rx="8" fill="#fff" stroke="#111" stroke-width="3"/>
+            <text x="77" y="96" text-anchor="middle">agent</text>
+            <path d="M142 91h72" stroke="#36d7b7" stroke-width="9"/>
+            <rect x="214" y="32" width="124" height="118" rx="8" fill="#101111"/>
+            <text x="276" y="82" text-anchor="middle" fill="#f2ff5b">TEE</text>
+            <text x="276" y="114" text-anchor="middle" fill="#fff">gateway</text>
+            <path d="M276 150v34" stroke="#ff775d" stroke-width="8"/>
+          </svg>
+          <h3>Attested gateway</h3>
+          <p><strong>Infrastructure:</strong> OpenAI-compatible gateway, event signer, event sink, TEE quote verifier.</p>
+          <p><strong>Trust:</strong> Strong for calls routed through the measured gateway.</p>
+          <p><strong>Implication:</strong> Good for strict events. It still cannot prove out-of-band non-use.</p>
+        </article>
 
-        <table class="card-fields">
-          <thead>
-            <tr><th>field</th><th>meaning</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>subject</td><td>the service, workflow, MCP server, or package asking for privilege</td></tr>
-            <tr><td>source</td><td>repo, commit, and optional release ref</td></tr>
-            <tr><td>runtime</td><td>platform quote plus attested TLS binding</td></tr>
-            <tr><td>policy</td><td>the local rule that allowed or denied access</td></tr>
-            <tr><td>receipt</td><td>EAT CBOR and JSON summary for verifiers</td></tr>
-          </tbody>
-        </table>
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="Local proxy diagram">
+            <rect x="30" y="44" width="138" height="92" rx="8" fill="#fff" stroke="#111" stroke-width="3"/>
+            <text x="99" y="94" text-anchor="middle">laptop</text>
+            <path d="M168 90h54" stroke="#ff775d" stroke-width="8"/>
+            <circle cx="268" cy="90" r="50" fill="#36d7b7" stroke="#111" stroke-width="3"/>
+            <text x="268" y="84" text-anchor="middle">local</text>
+            <text x="268" y="112" text-anchor="middle">model</text>
+            <path d="M98 136v36h170" fill="none" stroke="#111" stroke-width="4"/>
+          </svg>
+          <h3>Local proxy</h3>
+          <p><strong>Infrastructure:</strong> Local OpenAI-compatible proxy near Ollama, LM Studio, oMLX, vLLM, or llama.cpp.</p>
+          <p><strong>Trust:</strong> Participant controlled unless run inside a managed or attested environment.</p>
+          <p><strong>Implication:</strong> Useful for local-model visibility. Not hard anti-cheat by itself.</p>
+        </article>
+
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="Browser extension diagram">
+            <rect x="36" y="34" width="210" height="132" rx="8" fill="#fff" stroke="#111" stroke-width="3"/>
+            <rect x="36" y="34" width="210" height="28" rx="8" fill="#ffd166"/>
+            <rect x="74" y="82" width="134" height="18" rx="4" fill="#36d7b7"/>
+            <rect x="74" y="112" width="96" height="18" rx="4" fill="#ff775d"/>
+            <path d="M250 90h48v42h-48z" fill="#101111"/>
+            <path d="M274 70v20M274 132v22" stroke="#101111" stroke-width="8"/>
+            <text x="141" y="154" text-anchor="middle">chat page</text>
+          </svg>
+          <h3>Browser extension</h3>
+          <p><strong>Infrastructure:</strong> Extension plus local capture daemon. The daemon signs and forwards events.</p>
+          <p><strong>Trust:</strong> Desktop browser extensions are participant controlled.</p>
+          <p><strong>Implication:</strong> Good activity signal. Do not score it like an enforced gateway.</p>
+        </article>
+
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="CLI wrapper diagram">
+            <rect x="30" y="42" width="300" height="120" rx="8" fill="#101111"/>
+            <text x="56" y="82" fill="#f2ff5b">$ llmattest start</text>
+            <text x="56" y="116" fill="#fff">agent command</text>
+            <path d="M64 140h230" stroke="#36d7b7" stroke-width="8"/>
+            <circle cx="294" cy="140" r="16" fill="#ff775d"/>
+          </svg>
+          <h3>CLI and SDK wrapper</h3>
+          <p><strong>Infrastructure:</strong> One binary launches the agent, injects env vars, and records session events.</p>
+          <p><strong>Trust:</strong> Proves the wrapper ran. LLM calls still need gateway or proxy capture.</p>
+          <p><strong>Implication:</strong> Low-friction onboarding. Best as glue, not the only evidence source.</p>
+        </article>
+
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="Strict workbench diagram">
+            <rect x="56" y="40" width="248" height="130" rx="8" fill="#fff" stroke="#111" stroke-width="3"/>
+            <rect x="86" y="70" width="90" height="70" rx="6" fill="#36d7b7"/>
+            <rect x="194" y="70" width="80" height="70" rx="6" fill="#ffd166"/>
+            <path d="M180 50v110" stroke="#111" stroke-width="3"/>
+            <text x="131" y="112" text-anchor="middle">tools</text>
+            <text x="234" y="112" text-anchor="middle">keys</text>
+          </svg>
+          <h3>Strict workbench</h3>
+          <p><strong>Infrastructure:</strong> Managed workspace, controlled credentials, capture defaults, and limited escape hatches.</p>
+          <p><strong>Trust:</strong> Stronger than participant-local tools, weaker than a quoted TEE boundary.</p>
+          <p><strong>Implication:</strong> Good middle tier for events that need fairness without forcing every workflow through one model.</p>
+        </article>
+
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="TEE workspace diagram">
+            <rect x="74" y="34" width="212" height="142" rx="8" fill="#101111"/>
+            <rect x="112" y="72" width="136" height="68" rx="6" fill="#f2ff5b"/>
+            <path d="M74 70H40M74 104H40M74 138H40M286 70h34M286 104h34M286 138h34" stroke="#36d7b7" stroke-width="7"/>
+            <text x="180" y="104" text-anchor="middle" fill="#101111">quote</text>
+            <text x="180" y="132" text-anchor="middle" fill="#101111">workspace</text>
+          </svg>
+          <h3>TEE workspace</h3>
+          <p><strong>Infrastructure:</strong> Confidential VM or enclave, quote collection, signed capture stack, remote verifier.</p>
+          <p><strong>Trust:</strong> Strong for the measured workspace and the hooks it actually runs.</p>
+          <p><strong>Implication:</strong> Highest assurance path. Still state what is observed; do not imply omniscience.</p>
+        </article>
+
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="Provider TLS notary diagram">
+            <circle cx="88" cy="102" r="44" fill="#fff" stroke="#111" stroke-width="3"/>
+            <circle cx="272" cy="102" r="44" fill="#ffd166" stroke="#111" stroke-width="3"/>
+            <path d="M132 102h96" stroke="#36d7b7" stroke-width="8"/>
+            <path d="M170 76l20 52 20-52" fill="none" stroke="#ff775d" stroke-width="6"/>
+            <text x="88" y="108" text-anchor="middle">user</text>
+            <text x="272" y="96" text-anchor="middle">TLS</text>
+            <text x="272" y="122" text-anchor="middle">notary</text>
+          </svg>
+          <h3>Provider TLS notary</h3>
+          <p><strong>Infrastructure:</strong> Retrospective proof import from provider web or API evidence.</p>
+          <p><strong>Trust:</strong> Can support what was shown in that account or session.</p>
+          <p><strong>Implication:</strong> Mercy lane and audit tool. It cannot prove absence across other accounts.</p>
+        </article>
+
+        <article class="capture-card">
+          <svg class="capture-art" viewBox="0 0 360 210" role="img" aria-label="Manual import diagram">
+            <path d="M102 34h138l38 38v104H102z" fill="#fff" stroke="#111" stroke-width="3"/>
+            <path d="M240 34v38h38" fill="none" stroke="#111" stroke-width="3"/>
+            <path d="M130 92h112M130 122h112M130 152h76" stroke="#36d7b7" stroke-width="8"/>
+            <circle cx="255" cy="154" r="24" fill="#ff775d"/>
+            <text x="255" y="162" text-anchor="middle" fill="#111">sig</text>
+          </svg>
+          <h3>Manual import</h3>
+          <p><strong>Infrastructure:</strong> CLI or daemon accepts a report and emits the same signed event envelope.</p>
+          <p><strong>Trust:</strong> Self reported unless backed by separate evidence.</p>
+          <p><strong>Implication:</strong> Keeps late teams from falling out of the event. Label it plainly.</p>
+        </article>
       </div>
     </section>
 
-    <section id="proof" class="band browser-proof">
+    <section id="infra" class="band">
       <div class="section-heading">
-        <span is-="badge" variant-="info">browser proof</span>
-        <h2>Recompute the archived Value X in this page.</h2>
+        <p class="kicker">infrastructure</p>
+        <h2>The system is a few narrow interfaces.</h2>
         <p>
-          This widget walks the GitHub tree and reproduces the source identity
-          signed in the archived ouroboros run. Hardware quote verification
-          remains in the Rust verifier.
+          Capture sources differ. The backend should not. Everything becomes a
+          signed <code>ContestEvent</code>, stored in an append-only event log,
+          then rendered into cards and proof documents.
         </p>
       </div>
 
-      <div id="verifier" is-="card" box-="square">
-        <div is-="card-header">
-          <div is-="card-title">Value X verifier</div>
-          <div is-="card-description">sha384 tree identity for <code>v2</code> at commit <code>2593db6</code></div>
-        </div>
-        <div is-="card-content">
-          <div class="verify-controls">
-            <label for="verify-path">path</label>
-            <select id="verify-path">
-              <option value="v2" selected>v2 (full, matches ouroboros)</option>
-              <option value="v2/src">v2/src (quick demo, will not match)</option>
-            </select>
-            <label for="verify-ref">git ref</label>
-            <input id="verify-ref" type="text" value="2593db6" placeholder="commit / branch / tag">
-            <button id="verify-run" type="button" variant-="primary">compute</button>
-            <button id="verify-clear" type="button" box-="square">clear</button>
-          </div>
-          <div class="verify-status">
-            <span>status:</span>
-            <strong id="verify-phase">idle</strong>
-            <span>//</span>
-            <span id="verify-count">0 files</span>
-          </div>
-          <div id="verify-log" is-="scroll-area" class="verify-log"></div>
-          <div id="verify-result" class="verify-result" hidden>
-            <div class="verify-result-label">computed value x</div>
-            <div id="verify-result-hex" class="verify-result-hex"></div>
-            <div id="verify-compare" class="verify-compare"></div>
-          </div>
-        </div>
+      <div class="infra-grid">
+        <article>
+          <h3>Hosted or self-hosted event service</h3>
+          <p>Creates events, team payloads, join URLs, dashboards, runcards, SVGs, and proof endpoints.</p>
+        </article>
+        <article>
+          <h3>One participant binary</h3>
+          <p>Starts the local companion, probes the machine, selects a capture path, and wraps agent commands.</p>
+        </article>
+        <article>
+          <h3>Capture adapters</h3>
+          <p>Gateway, local proxy, browser, workbench, TEE workspace, TLS notary, and manual import all emit the same envelope.</p>
+        </article>
+        <article>
+          <h3>Proof endpoints</h3>
+          <p>Cards link to JSON, receipts, credential documents, and event log roots. SVGs embed compact metadata.</p>
+        </article>
       </div>
     </section>
 
-    <section id="repo" class="band split repo-band">
-      <div>
-        <div class="section-heading compact">
-          <span is-="badge" variant-="primary">code paths</span>
-          <h2>Where the claims live.</h2>
-        </div>
-        <p>
-          These files are the implementation surface the product language should
-          point back to. If the page says a thing, it should have a path here.
-        </p>
-      </div>
-
-      <div class="repo-list" is-="frame" box-="square">
-        <div is-="frame-title">v2/</div>
-        <a class="proof-link" href="https://github.com/maceip/runcards/blob/main/v2/src/eat.rs">
-          <span>src/eat.rs</span><span>EAT schema and binding bytes</span>
-        </a>
-        <a class="proof-link" href="https://github.com/maceip/runcards/blob/main/v2/src/quote/verify.rs">
-          <span>src/quote/verify.rs</span><span>TDX, SNP, and Nitro quote verification</span>
-        </a>
-        <a class="proof-link" href="https://github.com/maceip/runcards/blob/main/v2/src/net/attested_tls.rs">
-          <span>src/net/attested_tls.rs</span><span>EAT inside the TLS certificate</span>
-        </a>
-        <a class="proof-link" href="https://github.com/maceip/runcards/blob/main/v2/tests/hardware_regression.rs">
-          <span>tests/hardware_regression.rs</span><span>real hardware fixture verification</span>
-        </a>
-        <a class="proof-link" href="https://github.com/maceip/runcards/blob/main/v2/HARDWARE_VALIDATION.md">
-          <span>HARDWARE_VALIDATION.md</span><span>Stage 0 to Stage 1 runbook</span>
-        </a>
-      </div>
-    </section>
-
-    <section class="band">
+    <section id="trust" class="band trust-section">
       <div class="section-heading">
-        <span is-="badge" variant-="warning">deployment pass</span>
-        <h2>Fresh receipts should come from real cloud runs.</h2>
-        <p>
-          The repo has the Stage 0/Stage 1 machinery and hardware fixtures. The
-          next credibility step is to rerun the deployments with current cloud
-          accounts and publish the resulting receipts.
-        </p>
+        <p class="kicker">trust assumptions</p>
+        <h2>What a card means.</h2>
       </div>
 
-      <table class="cloud-table">
-        <thead>
-          <tr><th>platform</th><th>target pass</th><th>why it matters</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>GCP TDX</td><td>Stage 0 + Stage 1 + check</td><td>fastest full chain validation</td></tr>
-          <tr><td>AWS Nitro</td><td>enclave build + attested TLS + KMS</td><td>strongest secret-release story</td></tr>
-          <tr><td>AWS SEV-SNP</td><td>Stage 0 + NitroTPM-linked evidence</td><td>common confidential VM path</td></tr>
-          <tr><td>Azure CVM</td><td>collector decision, then Stage 0</td><td>turn tested-not-verified into a supported path</td></tr>
-        </tbody>
-      </table>
+      <div class="trust-layout">
+        <div>
+          <h3>Claims we can make</h3>
+          <ul class="plain-list">
+            <li>The card was derived from signed captured events.</li>
+            <li>The event log root commits to the receipts used for the stats.</li>
+            <li>Assurance labels describe the capture path that produced each event.</li>
+            <li>Remote attestation proves a measured component when the path has real quote evidence.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Claims we must not make</h3>
+          <ul class="plain-list">
+            <li>It does not prove a participant never used another model.</li>
+            <li>It does not make browser or local capture equal to a TEE gateway.</li>
+            <li>It does not make provider token numbers independently true.</li>
+            <li>It does not turn a voluntary universal card into an anti-cheat system.</li>
+          </ul>
+        </div>
+      </div>
     </section>
 
-    <section class="band">
-      <details is-="accordion" box-="square">
-        <summary>Next useful pieces</summary>
-        <ul class="plain-list next-list">
-          <li>Fresh Stage 0/Stage 1 cloud receipts for GCP, AWS, and Azure.</li>
-          <li><code>proof-receipt.json</code> as the stable app-facing receipt summary.</li>
-          <li><code>runcard gate</code> for CI, deploy, and secret-release jobs.</li>
-          <li>GitHub check summaries that say exactly why a run can receive privilege.</li>
-          <li>MCP tools for runtime verification and receipt explanation.</li>
-          <li>Shadow builds so projects can get receipts without owning TEE hardware.</li>
-        </ul>
-      </details>
+    <section class="band start-section">
+      <div class="section-heading compact">
+        <p class="kicker">current path</p>
+        <h2>Start with the participant binary.</h2>
+      </div>
+      <pre><code>llmattest start --team-payload team.json -- &lt;agent command&gt;</code></pre>
+      <p>
+        The same event can also run as a hosted service or a self-hosted service
+        inside a TEE. The page labels the difference; the verifier checks the
+        receipt chain.
+      </p>
+    </section>
+
+    <section id="repo" class="band">
+      <div class="section-heading">
+        <p class="kicker">repo map</p>
+        <h2>Implementation pointers.</h2>
+      </div>
+      <div class="repo-links">
+        <a href="https://github.com/maceip/runcards/blob/main/v2/src/bin/llm-event-service.rs">event service</a>
+        <a href="https://github.com/maceip/runcards/blob/main/v2/src/bin/llmattest.rs">participant binary</a>
+        <a href="https://github.com/maceip/runcards/blob/main/v2/src/bin/llm-gateway.rs">gateway</a>
+        <a href="https://github.com/maceip/runcards/blob/main/v2/src/bin/llm-capture-daemon.rs">capture daemon</a>
+        <a href="https://github.com/maceip/runcards/blob/main/v2/src/llm_attested.rs">event envelope</a>
+        <a href="https://github.com/maceip/runcards/blob/main/v2/tests/llm_capture_paths_e2e.rs">capture E2E tests</a>
+      </div>
     </section>
   </main>
 
   <footer class="site-footer">
     <span>Runcard</span>
-    <span>proof before privilege</span>
+    <span>captured work, explicit trust labels</span>
     <a href="https://github.com/maceip/runcards">github.com/maceip/runcards</a>
   </footer>
-
-  <script src="assets/runcard.js?v=20260517"></script>
-  <script src="assets/verify.js?v=20260517"></script>
 </body>
 </html>

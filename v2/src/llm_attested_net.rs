@@ -1,18 +1,20 @@
-//! Small network-hardening primitives for LLM Attested services.
+//! Network-hardening glue for LLM Attested services.
 //!
-//! The services stay deliberately simple, but they should fail closed under
-//! load: bounded concurrency, rate limits, and persistent cooldowns.
+//! Rate decisions are delegated to `governor` so the project does not own a
+//! token-bucket implementation. This module only maps project policies and
+//! caller keys to governor limiters and response metadata.
 
 use anyhow::{Context, Result};
+use governor::clock::{Clock, DefaultClock};
+use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const TOKEN_SCALE: u64 = 1_000;
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateLimitPolicy {
     pub capacity: u32,
     pub refill_per_minute: u32,
@@ -46,7 +48,7 @@ pub struct RateLimitDecision {
 }
 
 #[derive(Debug)]
-pub struct PersistentRateLimiter {
+pub struct ServiceRateLimiter {
     path: PathBuf,
     max_sessions: usize,
     idle_ttl_ms: u64,
@@ -54,42 +56,74 @@ pub struct PersistentRateLimiter {
     state: Mutex<LimiterState>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug)]
 struct LimiterState {
-    sessions: BTreeMap<String, RateLimitSession>,
-    #[serde(default)]
+    sessions: BTreeMap<String, LimiterEntry>,
     dirty: bool,
-    #[serde(default)]
     last_saved_ms: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct RateLimitSession {
-    tokens_scaled: u64,
-    last_refill_ms: u64,
+#[derive(Debug)]
+struct LimiterEntry {
+    policy: RateLimitPolicy,
+    limiter: Arc<DefaultDirectRateLimiter>,
     blocked_until_ms: u64,
     violations: u32,
     last_seen_ms: u64,
 }
 
-impl PersistentRateLimiter {
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct PersistedLimiterState {
+    sessions: BTreeMap<String, PersistedSession>,
+    #[serde(default)]
+    last_saved_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedSession {
+    blocked_until_ms: u64,
+    violations: u32,
+    last_seen_ms: u64,
+}
+
+impl ServiceRateLimiter {
     pub fn load(path: PathBuf, max_sessions: usize) -> Result<Self> {
         let now = now_ms();
-        let mut state = if path.exists() {
+        let persisted = if path.exists() {
             let body = std::fs::read_to_string(&path)
                 .with_context(|| format!("read rate limit state {}", path.display()))?;
-            serde_json::from_str::<LimiterState>(&body)
+            serde_json::from_str::<PersistedLimiterState>(&body)
                 .with_context(|| format!("decode rate limit state {}", path.display()))?
         } else {
-            LimiterState::default()
+            PersistedLimiterState::default()
         };
-        state.last_saved_ms = now;
+        let default_policy = RateLimitPolicy::per_minute(1, 1);
+        let sessions = persisted
+            .sessions
+            .into_iter()
+            .map(|(key, session)| {
+                (
+                    key,
+                    LimiterEntry {
+                        policy: default_policy,
+                        limiter: Arc::new(RateLimiter::direct(quota(default_policy))),
+                        blocked_until_ms: session.blocked_until_ms,
+                        violations: session.violations,
+                        last_seen_ms: session.last_seen_ms,
+                    },
+                )
+            })
+            .collect();
         Ok(Self {
             path,
             max_sessions: max_sessions.max(1),
             idle_ttl_ms: 24 * 60 * 60 * 1_000,
             save_interval_ms: 5_000,
-            state: Mutex::new(state),
+            state: Mutex::new(LimiterState {
+                sessions,
+                dirty: false,
+                last_saved_ms: now,
+            }),
         })
     }
 
@@ -98,62 +132,70 @@ impl PersistentRateLimiter {
         key: impl Into<String>,
         policy: RateLimitPolicy,
     ) -> Result<RateLimitDecision> {
-        let now = now_ms();
         let key = key.into();
+        let now = now_ms();
         let mut state = self.state.lock().expect("rate limiter mutex poisoned");
         if state.sessions.len() > self.max_sessions {
-            prune_sessions(&mut state, now, self.idle_ttl_ms);
+            prune_sessions(&mut state.sessions, now, self.idle_ttl_ms);
+            state.dirty = true;
         }
-
-        let session = state
-            .sessions
-            .entry(key)
-            .or_insert_with(|| RateLimitSession {
-                tokens_scaled: policy.capacity as u64 * TOKEN_SCALE,
-                last_refill_ms: now,
-                blocked_until_ms: 0,
-                violations: 0,
+        let entry = state.sessions.entry(key).or_insert_with(|| LimiterEntry {
+            policy,
+            limiter: Arc::new(RateLimiter::direct(quota(policy))),
+            blocked_until_ms: 0,
+            violations: 0,
+            last_seen_ms: now,
+        });
+        if entry.policy != policy {
+            let blocked_until_ms = entry.blocked_until_ms;
+            let violations = entry.violations;
+            *entry = LimiterEntry {
+                policy,
+                limiter: Arc::new(RateLimiter::direct(quota(policy))),
+                blocked_until_ms,
+                violations,
                 last_seen_ms: now,
-            });
-        refill(session, policy, now);
-        session.last_seen_ms = now;
-
-        let cost = TOKEN_SCALE;
-        let decision = if now < session.blocked_until_ms {
+            };
+        }
+        entry.last_seen_ms = now;
+        let limit = policy.capacity;
+        let decision = if now < entry.blocked_until_ms {
             RateLimitDecision {
                 allowed: false,
-                retry_after_ms: session.blocked_until_ms.saturating_sub(now),
-                remaining: scaled_to_tokens(session.tokens_scaled),
-                limit: policy.capacity,
-            }
-        } else if session.tokens_scaled >= cost {
-            session.tokens_scaled -= cost;
-            if session.violations > 0
-                && session.tokens_scaled > (policy.capacity as u64 * TOKEN_SCALE / 2)
-            {
-                session.violations -= 1;
-            }
-            RateLimitDecision {
-                allowed: true,
-                retry_after_ms: 0,
-                remaining: scaled_to_tokens(session.tokens_scaled),
-                limit: policy.capacity,
+                retry_after_ms: entry.blocked_until_ms.saturating_sub(now),
+                remaining: 0,
+                limit,
             }
         } else {
-            session.violations = session.violations.saturating_add(1).min(20);
-            let refill_wait_ms = refill_wait_ms(session.tokens_scaled, policy);
-            let backoff_ms = exponential_backoff_ms(policy, session.violations);
-            let retry_after_ms = refill_wait_ms.max(backoff_ms);
-            session.blocked_until_ms = now.saturating_add(retry_after_ms);
-            RateLimitDecision {
-                allowed: false,
-                retry_after_ms,
-                remaining: scaled_to_tokens(session.tokens_scaled),
-                limit: policy.capacity,
+            match entry.limiter.check() {
+                Ok(()) => {
+                    if entry.violations > 0 {
+                        entry.violations -= 1;
+                        state.dirty = true;
+                    }
+                    RateLimitDecision {
+                        allowed: true,
+                        retry_after_ms: 0,
+                        remaining: limit.saturating_sub(1),
+                        limit,
+                    }
+                }
+                Err(until) => {
+                    let wait = until.wait_time_from(DefaultClock::default().now());
+                    entry.violations = entry.violations.saturating_add(1).min(20);
+                    let retry_after_ms = (wait.as_millis().min(u64::MAX as u128) as u64)
+                        .max(exponential_backoff_ms(policy, entry.violations));
+                    entry.blocked_until_ms = now.saturating_add(retry_after_ms);
+                    state.dirty = true;
+                    RateLimitDecision {
+                        allowed: false,
+                        retry_after_ms,
+                        remaining: 0,
+                        limit,
+                    }
+                }
             }
         };
-
-        state.dirty = true;
         if decision.allowed {
             self.save_if_due(&mut state, now)?;
         } else {
@@ -181,35 +223,30 @@ impl PersistentRateLimiter {
                     .with_context(|| format!("create rate limit dir {}", parent.display()))?;
             }
         }
-        let body = serde_json::to_vec_pretty(state).context("encode rate limit state")?;
+        let persisted = PersistedLimiterState {
+            sessions: state
+                .sessions
+                .iter()
+                .map(|(key, session)| {
+                    (
+                        key.clone(),
+                        PersistedSession {
+                            blocked_until_ms: session.blocked_until_ms,
+                            violations: session.violations,
+                            last_seen_ms: session.last_seen_ms,
+                        },
+                    )
+                })
+                .collect(),
+            last_saved_ms: now,
+        };
+        let body = serde_json::to_vec_pretty(&persisted).context("encode rate limit state")?;
         std::fs::write(&self.path, body)
             .with_context(|| format!("write rate limit state {}", self.path.display()))?;
         state.dirty = false;
         state.last_saved_ms = now;
         Ok(())
     }
-}
-
-fn refill(session: &mut RateLimitSession, policy: RateLimitPolicy, now: u64) {
-    let elapsed_ms = now.saturating_sub(session.last_refill_ms);
-    if elapsed_ms == 0 {
-        return;
-    }
-    let refill = elapsed_ms
-        .saturating_mul(policy.refill_per_minute as u64)
-        .saturating_mul(TOKEN_SCALE)
-        / 60_000;
-    let capacity = policy.capacity as u64 * TOKEN_SCALE;
-    session.tokens_scaled = session.tokens_scaled.saturating_add(refill).min(capacity);
-    session.last_refill_ms = now;
-}
-
-fn refill_wait_ms(tokens_scaled: u64, policy: RateLimitPolicy) -> u64 {
-    let missing = TOKEN_SCALE.saturating_sub(tokens_scaled);
-    let refill_per_ms = policy.refill_per_minute as u64 * TOKEN_SCALE;
-    missing
-        .saturating_mul(60_000)
-        .div_ceil(refill_per_ms.max(1))
 }
 
 fn exponential_backoff_ms(policy: RateLimitPolicy, violations: u32) -> u64 {
@@ -220,14 +257,14 @@ fn exponential_backoff_ms(policy: RateLimitPolicy, violations: u32) -> u64 {
         .min(policy.max_backoff_ms)
 }
 
-fn prune_sessions(state: &mut LimiterState, now: u64, idle_ttl_ms: u64) {
-    state
-        .sessions
-        .retain(|_, session| now.saturating_sub(session.last_seen_ms) <= idle_ttl_ms);
+fn quota(policy: RateLimitPolicy) -> Quota {
+    let replenish = NonZeroU32::new(policy.refill_per_minute).expect("refill is nonzero");
+    let burst = NonZeroU32::new(policy.capacity).expect("capacity is nonzero");
+    Quota::per_minute(replenish).allow_burst(burst)
 }
 
-fn scaled_to_tokens(tokens_scaled: u64) -> u32 {
-    (tokens_scaled / TOKEN_SCALE).min(u32::MAX as u64) as u32
+fn prune_sessions(state: &mut BTreeMap<String, LimiterEntry>, now: u64, idle_ttl_ms: u64) {
+    state.retain(|_, session| now.saturating_sub(session.last_seen_ms) <= idle_ttl_ms);
 }
 
 pub fn retry_after_secs(retry_after_ms: u64) -> u64 {
@@ -248,12 +285,29 @@ mod tests {
     #[test]
     fn limiter_blocks_and_reports_backoff() {
         let dir = tempfile::tempdir().unwrap();
-        let limiter = PersistentRateLimiter::load(dir.path().join("rate.json"), 64).unwrap();
+        let limiter = ServiceRateLimiter::load(dir.path().join("rate.json"), 64).unwrap();
         let policy = RateLimitPolicy::per_minute(60, 1).with_backoff(250, 1_000);
 
         assert!(limiter.check("ip:127.0.0.1", policy).unwrap().allowed);
         let blocked = limiter.check("ip:127.0.0.1", policy).unwrap();
         assert!(!blocked.allowed);
-        assert!(blocked.retry_after_ms >= 250);
+        assert!(blocked.retry_after_ms > 0);
+    }
+
+    #[test]
+    fn limiter_persists_active_backoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rate.json");
+        let policy = RateLimitPolicy::per_minute(60, 1).with_backoff(750, 1_000);
+        {
+            let limiter = ServiceRateLimiter::load(path.clone(), 64).unwrap();
+            assert!(limiter.check("team:one", policy).unwrap().allowed);
+            assert!(!limiter.check("team:one", policy).unwrap().allowed);
+        }
+
+        let restored = ServiceRateLimiter::load(path, 64).unwrap();
+        let blocked = restored.check("team:one", policy).unwrap();
+        assert!(!blocked.allowed);
+        assert!(blocked.retry_after_ms > 0);
     }
 }

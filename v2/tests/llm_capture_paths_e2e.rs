@@ -819,6 +819,10 @@ fn runcard_share_surfaces_e2e() {
         .as_str()
         .unwrap()
         .ends_with("/runcard.svg"));
+    assert!(card["share"]["individual_signal_image_url"]
+        .as_str()
+        .unwrap()
+        .ends_with("/runcard.signal.svg"));
     assert!(card["integrity"]["event_log_root"]
         .as_str()
         .unwrap()
@@ -841,6 +845,41 @@ fn runcard_share_surfaces_e2e() {
         .unwrap();
     assert!(svg.starts_with("<svg"));
     assert!(svg.contains("scan to verify"));
+    assert!(svg.contains("runcard-card-json"));
+    assert!(svg.contains("data-sha256=\"sha256:"));
+
+    let signal_json = get_json(
+        &client,
+        card["share"]["individual_signal_json_url"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(
+        signal_json["profile"],
+        "https://runcard.dev/llm-individual-signal/v1"
+    );
+    assert_eq!(
+        signal_json["participant"]["agent_session_id"],
+        "agent_capture_test"
+    );
+    assert_eq!(signal_json["stats"]["today_llm_calls"], 1);
+    assert_eq!(signal_json["stats"]["today_total_tokens"], 7);
+
+    let signal_svg = client
+        .get(
+            card["share"]["individual_signal_image_url"]
+                .as_str()
+                .unwrap(),
+        )
+        .send()
+        .unwrap()
+        .text()
+        .unwrap();
+    assert!(signal_svg.starts_with("<svg"));
+    assert!(signal_svg.contains("agent_capture_test"));
+    assert!(signal_svg.contains("LIVE RUNCARD"));
+    assert!(signal_svg.contains("runcard-card-json"));
+    assert!(signal_svg.contains("llm-individual-signal/v1"));
 
     let qr = client
         .get(card["share"]["qr_svg_url"].as_str().unwrap())

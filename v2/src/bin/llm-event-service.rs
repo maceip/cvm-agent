@@ -4,14 +4,19 @@
 //! hand. This service creates an event, returns shareable URLs, and lets teams
 //! self-issue start instructions.
 
+#![forbid(unsafe_code)]
+
 use anyhow::{anyhow, Context, Result};
+use bountynet::http_service::{
+    rustls_acceptor_from_paths, serve_hyper, write_json, write_rate_limited, write_response,
+    write_response_with_headers, BufferedResponse as HttpConn, CorsHeaders, HandlerFuture,
+    HttpRequest, HttpServerConfig,
+};
 use bountynet::llm_attested::{
     build_capture_ra_claim, event_matches_capture_ra_claim, random_id, sha256_prefixed,
     ContestEvent, ContestManifest, TrustPolicy,
 };
-use bountynet::llm_attested_net::{
-    retry_after_secs, PersistentRateLimiter, RateLimitDecision, RateLimitPolicy,
-};
+use bountynet::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
 use qrcodegen::{QrCode, QrCodeEcc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,10 +24,8 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{Mutex, Semaphore};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 struct Config {
@@ -41,6 +44,9 @@ struct Config {
     store_path: PathBuf,
     event_log_dir: PathBuf,
     rate_state_path: PathBuf,
+    tls_cert_path: Option<PathBuf>,
+    tls_key_path: Option<PathBuf>,
+    tls_client_ca_path: Option<PathBuf>,
     max_connections: usize,
     read_timeout_ms: u64,
     public_requests_per_minute: u32,
@@ -134,17 +140,10 @@ struct CreateTeamRequest {
     team_name: Option<String>,
 }
 
-#[derive(Debug)]
-struct HttpRequest {
-    method: String,
-    path: String,
-    body: Vec<u8>,
-}
-
 struct AppState {
     cfg: Config,
     store: Mutex<Store>,
-    limiter: Arc<PersistentRateLimiter>,
+    limiter: Arc<ServiceRateLimiter>,
     http: reqwest::Client,
 }
 
@@ -155,8 +154,8 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&cfg.event_log_dir)
         .with_context(|| format!("create event log dir {}", cfg.event_log_dir.display()))?;
     let limiter = Arc::new(
-        PersistentRateLimiter::load(cfg.rate_state_path.clone(), 200_000)
-            .context("load event service rate limit state")?,
+        ServiceRateLimiter::load(cfg.rate_state_path.clone(), 200_000)
+            .context("initialize event service governor rate limiter")?,
     );
     let state = Arc::new(AppState {
         cfg: cfg.clone(),
@@ -167,7 +166,21 @@ async fn main() -> Result<()> {
             .context("build event service http client")?,
     });
 
-    eprintln!("[llm-event-service] listening on {}", cfg.listen);
+    let tls_acceptor = rustls_acceptor_from_paths(
+        cfg.tls_cert_path.as_ref(),
+        cfg.tls_key_path.as_ref(),
+        cfg.tls_client_ca_path.as_ref(),
+    )?;
+    let transport = if tls_acceptor.is_some() {
+        "rustls"
+    } else {
+        "http"
+    };
+
+    eprintln!(
+        "[llm-event-service] listening on {} ({transport})",
+        cfg.listen
+    );
     eprintln!("[llm-event-service] public base {}", cfg.public_base_url);
     eprintln!(
         "[llm-event-service] default gateway {}",
@@ -179,46 +192,53 @@ async fn main() -> Result<()> {
         cfg.event_log_dir.display()
     );
     eprintln!(
-        "[llm-event-service] rate state {}",
+        "[llm-event-service] rate limiter governor with persisted backoff state {}",
         cfg.rate_state_path.display()
     );
-
-    let listener = TcpListener::bind(&cfg.listen)
-        .await
-        .with_context(|| format!("bind {}", cfg.listen))?;
-    let concurrency = Arc::new(Semaphore::new(cfg.max_connections));
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        let Ok(permit) = concurrency.clone().try_acquire_owned() else {
-            tokio::spawn(async move {
-                let mut stream = stream;
-                let _ = write_json(
-                    &mut stream,
-                    503,
-                    &serde_json::json!({"error": "event service overloaded"}),
-                )
-                .await;
-            });
-            continue;
-        };
-        let state = state.clone();
-        tokio::spawn(async move {
-            let _permit = permit;
-            if let Err(e) = handle_connection(stream, state, addr).await {
-                eprintln!("[llm-event-service] request from {addr} failed: {e}");
-            }
-        });
+    if let Some(path) = &cfg.tls_client_ca_path {
+        eprintln!("[llm-event-service] rustls client CA {}", path.display());
     }
+    if tls_acceptor.is_none() {
+        eprintln!("[llm-event-service] expected public deployment: Caddy terminates TLS and forwards HTTP here");
+    }
+
+    serve_hyper(
+        HttpServerConfig {
+            service_name: "llm-event-service",
+            listen: cfg.listen.clone(),
+            max_connections: cfg.max_connections,
+            read_timeout_ms: cfg.read_timeout_ms,
+            body_limit_bytes: 1024 * 1024,
+            cors: CorsHeaders::new("content-type"),
+            tls_acceptor,
+        },
+        state,
+        event_service_handler,
+    )
+    .await
+}
+
+fn event_service_handler(
+    state: Arc<AppState>,
+    peer: SocketAddr,
+    req: HttpRequest,
+) -> HandlerFuture {
+    Box::pin(async move {
+        let mut response = HttpConn::default();
+        handle_connection(&mut response, state, peer, req).await?;
+        Ok(response)
+    })
 }
 
 async fn handle_connection(
-    mut stream: TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     peer: SocketAddr,
+    req: HttpRequest,
 ) -> Result<()> {
     let ip = peer.ip().to_string();
     if !enforce_rate(
-        &mut stream,
+        stream,
         &state,
         format!("event-service:ip:{ip}"),
         RateLimitPolicy::per_minute(
@@ -232,24 +252,6 @@ async fn handle_connection(
         return Ok(());
     }
 
-    let read = tokio::time::timeout(
-        Duration::from_millis(state.cfg.read_timeout_ms),
-        read_http_request(&mut stream),
-    )
-    .await;
-    let Some(req) = (match read {
-        Ok(req) => req?,
-        Err(_) => {
-            return write_json(
-                &mut stream,
-                408,
-                &serde_json::json!({"error": "request timed out"}),
-            )
-            .await;
-        }
-    }) else {
-        return Ok(());
-    };
     let route = req
         .path
         .split('?')
@@ -263,19 +265,19 @@ async fn handle_connection(
         .collect();
 
     match (req.method.as_str(), route.as_str()) {
-        ("OPTIONS", _) => write_response(&mut stream, 204, "text/plain", Vec::new()).await,
-        ("GET", "/healthz") => write_json(&mut stream, 200, &serde_json::json!({"ok": true})).await,
-        ("GET", "/") => write_response(&mut stream, 200, "text/html", home_page(&state.cfg)).await,
+        ("OPTIONS", _) => write_response(stream, 204, "text/plain", Vec::new()).await,
+        ("GET", "/healthz") => write_json(stream, 200, &serde_json::json!({"ok": true})).await,
+        ("GET", "/") => write_response(stream, 200, "text/html", home_page(&state.cfg)).await,
         ("GET", "/.well-known/llm-attested/self-host.json") => {
-            write_json(&mut stream, 200, &self_host_document(&state.cfg)).await
+            write_json(stream, 200, &self_host_document(&state.cfg)).await
         }
         ("GET", "/.well-known/runcard/registry.json") => {
-            write_json(&mut stream, 200, &registry_document(&state.cfg)).await
+            write_json(stream, 200, &registry_document(&state.cfg)).await
         }
-        ("GET", "/oembed") => oembed_document(&mut stream, state, &req.path).await,
+        ("GET", "/oembed") => oembed_document(stream, state, &req.path).await,
         ("POST", "/events") => {
             if !enforce_rate(
-                &mut stream,
+                stream,
                 &state,
                 format!("event-service:create-event:{ip}"),
                 RateLimitPolicy::per_minute(
@@ -288,31 +290,31 @@ async fn handle_connection(
             {
                 return Ok(());
             }
-            create_event(&mut stream, state, req).await
+            create_event(stream, state, req).await
         }
         _ if req.method == "GET" && parts.len() == 3 && parts[0] == "e" && parts[2] == "join" => {
-            join_page(&mut stream, state, &parts[1]).await
+            join_page(stream, state, &parts[1]).await
         }
         _ if req.method == "GET"
             && parts.len() == 3
             && parts[0] == "e"
             && parts[2] == "bootstrap.json" =>
         {
-            bootstrap_document(&mut stream, state, &parts[1]).await
+            bootstrap_document(stream, state, &parts[1]).await
         }
         _ if req.method == "GET"
             && parts.len() == 3
             && parts[0] == "e"
             && parts[2] == "dashboard" =>
         {
-            dashboard_page(&mut stream, state, &parts[1]).await
+            dashboard_page(stream, state, &parts[1]).await
         }
         _ if req.method == "GET"
             && parts.len() == 3
             && parts[0] == "e"
             && parts[2] == "runcards.json" =>
         {
-            event_runcards(&mut stream, state, &parts[1]).await
+            event_runcards(stream, state, &parts[1]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -320,7 +322,7 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard" =>
         {
-            team_runcard_page(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard_page(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -328,7 +330,7 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard.embed" =>
         {
-            team_runcard_embed_page(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard_embed_page(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -336,7 +338,25 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard.svg" =>
         {
-            team_runcard_svg(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard_svg(stream, state, &parts[1], &parts[3]).await
+        }
+        _ if req.method == "GET"
+            && parts.len() == 5
+            && parts[0] == "e"
+            && parts[2] == "teams"
+            && parts[4] == "runcard.signal.svg" =>
+        {
+            let agent = query_param(&req.path, "agent");
+            team_individual_signal_svg(stream, state, &parts[1], &parts[3], agent).await
+        }
+        _ if req.method == "GET"
+            && parts.len() == 5
+            && parts[0] == "e"
+            && parts[2] == "teams"
+            && parts[4] == "runcard.signal.json" =>
+        {
+            let agent = query_param(&req.path, "agent");
+            team_individual_signal(stream, state, &parts[1], &parts[3], agent).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -344,7 +364,7 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard.qr.svg" =>
         {
-            team_runcard_qr_svg(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard_qr_svg(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -352,7 +372,7 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard.proof.json" =>
         {
-            team_runcard_proof(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard_proof(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -360,7 +380,7 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard.receipts.json" =>
         {
-            team_runcard_receipts(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard_receipts(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -368,7 +388,7 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard.credential.json" =>
         {
-            team_runcard_credential(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard_credential(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
@@ -376,11 +396,11 @@ async fn handle_connection(
             && parts[2] == "teams"
             && parts[4] == "runcard.json" =>
         {
-            team_runcard(&mut stream, state, &parts[1], &parts[3]).await
+            team_runcard(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "POST" && parts.len() == 3 && parts[0] == "e" && parts[2] == "teams" => {
             if !enforce_rate(
-                &mut stream,
+                stream,
                 &state,
                 format!("event-service:create-team:{}:{ip}", parts[1]),
                 RateLimitPolicy::per_minute(
@@ -393,7 +413,7 @@ async fn handle_connection(
             {
                 return Ok(());
             }
-            create_team(&mut stream, state, &parts[1], req).await
+            create_team(stream, state, &parts[1], req).await
         }
         _ if req.method == "POST"
             && parts.len() == 3
@@ -401,7 +421,7 @@ async fn handle_connection(
             && parts[2] == "events" =>
         {
             if !enforce_rate(
-                &mut stream,
+                stream,
                 &state,
                 format!("event-service:ingest:{}:{ip}", parts[1]),
                 RateLimitPolicy::per_minute(
@@ -414,14 +434,14 @@ async fn handle_connection(
             {
                 return Ok(());
             }
-            ingest_event(&mut stream, state, &parts[1], req).await
+            ingest_event(stream, state, &parts[1], req).await
         }
-        _ => write_json(&mut stream, 404, &serde_json::json!({"error": "not found"})).await,
+        _ => write_json(stream, 404, &serde_json::json!({"error": "not found"})).await,
     }
 }
 
 async fn enforce_rate(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: &AppState,
     key: String,
     policy: RateLimitPolicy,
@@ -434,11 +454,7 @@ async fn enforce_rate(
     Ok(false)
 }
 
-async fn create_event(
-    stream: &mut TcpStream,
-    state: Arc<AppState>,
-    req: HttpRequest,
-) -> Result<()> {
+async fn create_event(stream: &mut HttpConn, state: Arc<AppState>, req: HttpRequest) -> Result<()> {
     let body: CreateEventRequest = if req.body.is_empty() {
         CreateEventRequest::default()
     } else {
@@ -561,7 +577,7 @@ async fn create_event(
 }
 
 async fn create_team(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     req: HttpRequest,
@@ -601,7 +617,7 @@ async fn create_team(
 }
 
 async fn ingest_event(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     req: HttpRequest,
@@ -782,7 +798,7 @@ async fn validate_attested_capture_event(
 }
 
 async fn bootstrap_document(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
 ) -> Result<()> {
@@ -798,7 +814,7 @@ async fn bootstrap_document(
     write_json(stream, 200, &event_bootstrap_document(event)).await
 }
 
-async fn join_page(stream: &mut TcpStream, state: Arc<AppState>, event_id: &str) -> Result<()> {
+async fn join_page(stream: &mut HttpConn, state: Arc<AppState>, event_id: &str) -> Result<()> {
     let store = state.store.lock().await;
     let Some(event) = store.events.get(event_id) else {
         return write_response(stream, 404, "text/html", b"event not found".to_vec()).await;
@@ -836,11 +852,7 @@ async fn join_page(stream: &mut TcpStream, state: Arc<AppState>, event_id: &str)
     write_response(stream, 200, "text/html", body.into_bytes()).await
 }
 
-async fn dashboard_page(
-    stream: &mut TcpStream,
-    state: Arc<AppState>,
-    event_id: &str,
-) -> Result<()> {
+async fn dashboard_page(stream: &mut HttpConn, state: Arc<AppState>, event_id: &str) -> Result<()> {
     let store = state.store.lock().await;
     let Some(event) = store.events.get(event_id) else {
         return write_response(stream, 404, "text/html", b"event not found".to_vec()).await;
@@ -908,6 +920,8 @@ fn team_start_payload(event: &EventRecord, team: &TeamRecord) -> Value {
         "runcard_embed_url": format!("{card_url}.embed"),
         "runcard_image_url": format!("{card_url}.svg"),
         "runcard_proof_url": format!("{card_url}.proof.json"),
+        "individual_signal_image_url": format!("{card_url}.signal.svg"),
+        "individual_signal_json_url": format!("{card_url}.signal.json"),
         "gateway_base_url": event.gateway_base_url,
         "event_sink_url": event.event_sink_url,
         "bootstrap_url": event.bootstrap_url,
@@ -941,11 +955,7 @@ fn team_start_payload(event: &EventRecord, team: &TeamRecord) -> Value {
     })
 }
 
-async fn event_runcards(
-    stream: &mut TcpStream,
-    state: Arc<AppState>,
-    event_id: &str,
-) -> Result<()> {
+async fn event_runcards(stream: &mut HttpConn, state: Arc<AppState>, event_id: &str) -> Result<()> {
     let store = state.store.lock().await;
     let Some(event) = store.events.get(event_id).cloned() else {
         return write_json(
@@ -1009,7 +1019,7 @@ async fn load_runcard_context(
 }
 
 async fn team_runcard(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1031,7 +1041,7 @@ async fn team_runcard(
 }
 
 async fn team_runcard_page(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1046,12 +1056,14 @@ async fn team_runcard_page(
     let url = share["url"].as_str().unwrap_or("");
     let embed_url = share["embed_url"].as_str().unwrap_or("");
     let image_url = share["image_url"].as_str().unwrap_or("");
+    let signal_image_url = share["individual_signal_image_url"].as_str().unwrap_or("");
     let proof_url = share["proof_url"].as_str().unwrap_or("");
     let credential_url = share["credential_url"].as_str().unwrap_or("");
     let description = card["share"]["headline"].as_str().unwrap_or("");
     let embed_code = format!(
         r#"<iframe src="{embed_url}" width="420" height="520" loading="lazy" referrerpolicy="no-referrer"></iframe>"#
     );
+    let profile_markdown = format!("![Runcard signal]({signal_image_url})");
     let body = format!(
         r#"<!doctype html>
 <html>
@@ -1113,9 +1125,11 @@ textarea {{ width: 100%; min-height: 84px; margin-top: 12px; border: 1px solid #
   <a href="{proof_url}">Proof bundle</a>
   <a href="{credential_url}">Credential JSON</a>
   <a href="{image_url}">SVG card</a>
+  <a href="{signal_image_url}">Individual signal SVG</a>
   <a href="{embed_url}">Live iframe</a>
 </div>
 <textarea readonly>{embed_code}</textarea>
+<textarea readonly>{profile_markdown}</textarea>
 </main>
 </body>
 </html>"#,
@@ -1125,6 +1139,7 @@ textarea {{ width: 100%; min-height: 84px; margin-top: 12px; border: 1px solid #
         description = html_escape(description),
         url = html_escape(url),
         image_url = html_escape(image_url),
+        signal_image_url = html_escape(signal_image_url),
         json_url = html_escape(share["json_url"].as_str().unwrap_or("runcard.json")),
         credential_url = html_escape(credential_url),
         proof_url = html_escape(proof_url),
@@ -1143,13 +1158,14 @@ textarea {{ width: 100%; min-height: 84px; margin-top: 12px; border: 1px solid #
                 .unwrap_or("sha256:empty")
         ),
         embed_code = html_escape(&embed_code),
+        profile_markdown = html_escape(&profile_markdown),
         json_ld = script_escape(&runcard_json_ld(&card)),
     );
     write_response(stream, 200, "text/html", body.into_bytes()).await
 }
 
 async fn team_runcard_embed_page(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1240,7 +1256,7 @@ footer {{ display: flex; justify-content: space-between; gap: 10px; align-items:
 }
 
 async fn team_runcard_svg(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1263,8 +1279,56 @@ async fn team_runcard_svg(
     .await
 }
 
+async fn team_individual_signal(
+    stream: &mut HttpConn,
+    state: Arc<AppState>,
+    event_id: &str,
+    team_id: &str,
+    agent: Option<String>,
+) -> Result<()> {
+    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+        return write_json(
+            stream,
+            404,
+            &serde_json::json!({"error": "runcard not found"}),
+        )
+        .await;
+    };
+    write_json(
+        stream,
+        200,
+        &individual_signal_document(&ctx.event, &ctx.team, &ctx.events, agent.as_deref()),
+    )
+    .await
+}
+
+async fn team_individual_signal_svg(
+    stream: &mut HttpConn,
+    state: Arc<AppState>,
+    event_id: &str,
+    team_id: &str,
+    agent: Option<String>,
+) -> Result<()> {
+    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+        return write_response(stream, 404, "image/svg+xml", b"not found".to_vec()).await;
+    };
+    let card = individual_signal_document(&ctx.event, &ctx.team, &ctx.events, agent.as_deref());
+    let svg = individual_signal_card_svg(&card)?;
+    write_response_with_headers(
+        stream,
+        200,
+        "image/svg+xml",
+        vec![(
+            "Cache-Control".to_string(),
+            "public, max-age=30".to_string(),
+        )],
+        svg.into_bytes(),
+    )
+    .await
+}
+
 async fn team_runcard_qr_svg(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1288,7 +1352,7 @@ async fn team_runcard_qr_svg(
 }
 
 async fn team_runcard_proof(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1311,7 +1375,7 @@ async fn team_runcard_proof(
 }
 
 async fn team_runcard_receipts(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1333,7 +1397,7 @@ async fn team_runcard_receipts(
 }
 
 async fn team_runcard_credential(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
@@ -1356,7 +1420,7 @@ async fn team_runcard_credential(
 }
 
 async fn oembed_document(
-    stream: &mut TcpStream,
+    stream: &mut HttpConn,
     state: Arc<AppState>,
     request_path: &str,
 ) -> Result<()> {
@@ -1542,6 +1606,8 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
             "json_url": json_url,
             "embed_url": embed_url,
             "image_url": image_url,
+            "individual_signal_json_url": format!("{}.signal.json", card_url),
+            "individual_signal_image_url": format!("{}.signal.svg", card_url),
             "qr_svg_url": qr_svg_url,
             "proof_url": proof_url,
             "receipts_url": receipts_url,
@@ -1550,6 +1616,208 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
             "dashboard_url": event.dashboard_url
         }
     })
+}
+
+fn individual_signal_document(
+    event: &EventRecord,
+    team: &TeamRecord,
+    events: &[ContestEvent],
+    requested_agent: Option<&str>,
+) -> Value {
+    let requested_agent = requested_agent
+        .map(str::trim)
+        .filter(|agent| !agent.is_empty())
+        .map(ToString::to_string);
+    let all_team_events = team_events(team, events);
+    let latest_team_agent = all_team_events
+        .last()
+        .map(|captured| captured.actor.agent_session_id.clone());
+    let agent_session_id = requested_agent.clone().or(latest_team_agent);
+    let selected_events: Vec<&ContestEvent> = if let Some(agent_session_id) = &agent_session_id {
+        all_team_events
+            .iter()
+            .copied()
+            .filter(|captured| captured.actor.agent_session_id == *agent_session_id)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let latest = selected_events.last().copied();
+    let day_start_ms = (now_ms() / 86_400_000) * 86_400_000;
+    let mut total_tokens = 0i64;
+    let mut llm_calls = 0i64;
+    let mut today_tokens = 0i64;
+    let mut today_llm_calls = 0i64;
+    let mut capture_methods = BTreeMap::<String, u64>::new();
+    let mut assurance = BTreeMap::<String, u64>::new();
+    let mut enforcement = BTreeMap::<String, u64>::new();
+
+    for captured in &selected_events {
+        let calls = captured_llm_calls(captured);
+        let tokens = captured.total_tokens();
+        total_tokens += tokens;
+        llm_calls += calls;
+        if captured.completed_at_ms >= day_start_ms {
+            today_tokens += tokens;
+            today_llm_calls += calls;
+        }
+        *capture_methods
+            .entry(captured.capture_method.clone())
+            .or_default() += 1;
+        *assurance.entry(captured.assurance.clone()).or_default() += 1;
+        if let Some(mode) = captured.evidence.get("enforcement_mode") {
+            *enforcement.entry(mode.clone()).or_default() += 1;
+        }
+    }
+
+    let signal_base_url = individual_signal_base_url(event, &team.team_id);
+    let image_url = format!("{}.svg", signal_base_url);
+    let json_url = format!("{}.json", signal_base_url);
+    let image_url = with_optional_agent_query(&image_url, requested_agent.as_deref());
+    let json_url = with_optional_agent_query(&json_url, requested_agent.as_deref());
+    let event_hashes = event_hashes_for_team(&selected_events);
+    let active_path = latest
+        .map(|captured| captured.capture_method.clone())
+        .unwrap_or_else(|| "not connected".to_string());
+    let latest_event = latest
+        .map(latest_signal_event_label)
+        .unwrap_or_else(|| "none yet".to_string());
+    let latest_age = latest
+        .map(|captured| format_age(captured.completed_at_ms))
+        .unwrap_or_else(|| "none yet".to_string());
+    let latest_assurance = latest
+        .map(|captured| captured.assurance.clone())
+        .unwrap_or_else(|| "pending".to_string());
+    let latest_enforcement = latest
+        .and_then(|captured| captured.evidence.get("enforcement_mode").cloned())
+        .unwrap_or_else(|| "unrouted".to_string());
+    let token_source = latest
+        .map(token_source_label)
+        .unwrap_or_else(|| "no usage receipts yet".to_string());
+    let failure = signal_failure_label(latest);
+    let participant_agent_session_id = agent_session_id;
+    let display_name = participant_agent_session_id
+        .clone()
+        .unwrap_or_else(|| team.team_name.clone());
+    let headline =
+        format!("{display_name} has {llm_calls} captured calls and {total_tokens} tokens");
+
+    serde_json::json!({
+        "version": 1,
+        "profile": "https://runcard.dev/llm-individual-signal/v1",
+        "event_id": event.event_id,
+        "event_type": event.event_type,
+        "event_name": event.name,
+        "team_id": team.team_id,
+        "team_name": team.team_name,
+        "participant": {
+            "display_name": display_name.clone(),
+            "agent_session_id": participant_agent_session_id
+        },
+        "stats": {
+            "captured_events": selected_events.len(),
+            "llm_calls": llm_calls,
+            "total_tokens": total_tokens,
+            "today_llm_calls": today_llm_calls,
+            "today_total_tokens": today_tokens
+        },
+        "labels": {
+            "capture_methods": capture_methods,
+            "assurance": assurance,
+            "enforcement": enforcement,
+            "active_path": active_path,
+            "latest_event": latest_event,
+            "latest_age": latest_age,
+            "latest_assurance": latest_assurance,
+            "latest_enforcement": latest_enforcement,
+            "token_source": token_source,
+            "actionable_failure": failure
+        },
+        "integrity": {
+            "event_log_root": event_log_root(&event_hashes),
+            "event_count": event_hashes.len(),
+            "latest_event_hash": event_hashes.last().cloned().unwrap_or_else(|| "sha256:empty".to_string()),
+            "team_runcard_url": runcard_url(event, &team.team_id),
+            "trust_registry_url": event.trust_policy.registry_url.clone(),
+            "runcard_receipt_url": event.trust_policy.runcard_receipt_url.clone(),
+            "gateway_manifest_url": event.gateway_manifest_url.clone()
+        },
+        "share": {
+            "headline": headline,
+            "url": json_url,
+            "json_url": json_url,
+            "image_url": image_url,
+            "team_runcard_url": runcard_url(event, &team.team_id)
+        }
+    })
+}
+
+fn captured_llm_calls(captured: &ContestEvent) -> i64 {
+    if captured.kind == "llm.call" {
+        1
+    } else {
+        captured
+            .metrics
+            .get("llm_calls")
+            .copied()
+            .unwrap_or(0)
+            .max(0)
+    }
+}
+
+fn latest_signal_event_label(captured: &ContestEvent) -> String {
+    let provider = captured
+        .subject
+        .get("provider")
+        .map(String::as_str)
+        .unwrap_or("unknown");
+    let model = captured
+        .subject
+        .get("model")
+        .map(String::as_str)
+        .unwrap_or("unknown");
+    format!("{} via {} {}", captured.kind, provider, model)
+}
+
+fn format_age(completed_at_ms: u64) -> String {
+    let elapsed_ms = now_ms().saturating_sub(completed_at_ms);
+    let elapsed_secs = elapsed_ms / 1_000;
+    if elapsed_secs < 60 {
+        format!("{elapsed_secs}s ago")
+    } else if elapsed_secs < 3_600 {
+        format!("{}m ago", elapsed_secs / 60)
+    } else if elapsed_secs < 86_400 {
+        format!("{}h ago", elapsed_secs / 3_600)
+    } else {
+        format!("{}d ago", elapsed_secs / 86_400)
+    }
+}
+
+fn token_source_label(captured: &ContestEvent) -> String {
+    if let Some(source) = captured.evidence.get("token_source") {
+        return source.clone();
+    }
+    if let Some(source) = captured.evidence.get("gateway_usage") {
+        return source.clone();
+    }
+    if captured.metrics.contains_key("total_tokens") {
+        "captured usage".to_string()
+    } else {
+        "usage missing".to_string()
+    }
+}
+
+fn signal_failure_label(latest: Option<&ContestEvent>) -> String {
+    let Some(latest) = latest else {
+        return "waiting for first capture".to_string();
+    };
+    if latest.kind == "llm.call" && !latest.metrics.contains_key("total_tokens") {
+        return "token usage missing".to_string();
+    }
+    if latest.kind == "llm.call" && latest.total_tokens() == 0 {
+        return "zero-token LLM call".to_string();
+    }
+    "0 actionable failures".to_string()
 }
 
 fn service_base_url(event: &EventRecord) -> String {
@@ -1579,6 +1847,17 @@ fn runcard_url(event: &EventRecord, team_id: &str) -> String {
         event.event_id,
         team_id
     )
+}
+
+fn individual_signal_base_url(event: &EventRecord, team_id: &str) -> String {
+    format!("{}.signal", runcard_url(event, team_id))
+}
+
+fn with_optional_agent_query(url: &str, agent: Option<&str>) -> String {
+    let Some(agent) = agent else {
+        return url.to_string();
+    };
+    format!("{url}?agent={}", url_encode_component(agent))
 }
 
 fn event_hashes_for_team(events: &[&ContestEvent]) -> Vec<String> {
@@ -1775,6 +2054,7 @@ fn runcard_card_svg(card: &Value) -> Result<String> {
     let share = &card["share"];
     let stats = &card["stats"];
     let labels = &card["labels"];
+    let metadata = svg_card_metadata(card)?;
     let url = share["url"].as_str().unwrap_or("");
     let qr = QrCode::encode_text(url, QrCodeEcc::Medium)
         .map_err(|e| anyhow!("encode runcard qr: {e:?}"))?;
@@ -1783,6 +2063,7 @@ fn runcard_card_svg(card: &Value) -> Result<String> {
     let qr_scale = 172.0 / qr_size;
     Ok(format!(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{team} runcard">
+{metadata}
 <rect width="1200" height="630" fill="#f6f7f2"/>
 <rect x="52" y="52" width="1096" height="526" rx="18" fill="#fbfcf7" stroke="#cfd5c2" stroke-width="2"/>
 <text x="92" y="118" fill="#5d6356" font-family="Inter, system-ui, sans-serif" font-size="24" letter-spacing="3">{event_name}</text>
@@ -1817,8 +2098,122 @@ fn runcard_card_svg(card: &Value) -> Result<String> {
         events = stats["captured_events"].as_u64().unwrap_or(0),
         assurance = xml_escape(&truncate_text(&compact_counts(&labels["assurance"]), 64)),
         enforcement = xml_escape(&truncate_text(&compact_counts(&labels["enforcement"]), 64)),
+        metadata = metadata,
         qr_path = qr_path,
         qr_scale = qr_scale
+    ))
+}
+
+fn individual_signal_card_svg(card: &Value) -> Result<String> {
+    let share = &card["share"];
+    let stats = &card["stats"];
+    let labels = &card["labels"];
+    let participant = &card["participant"];
+    let metadata = svg_card_metadata(card)?;
+    let url = share["json_url"]
+        .as_str()
+        .or_else(|| share["url"].as_str())
+        .unwrap_or("");
+    let qr = QrCode::encode_text(url, QrCodeEcc::Medium)
+        .map_err(|e| anyhow!("encode individual signal qr: {e:?}"))?;
+    let qr_path = qr_path_data(&qr, 4);
+    let qr_size = (qr.size() + 8).max(1) as f64;
+    let qr_scale = 98.0 / qr_size;
+    let captured_events = stats["captured_events"].as_u64().unwrap_or(0);
+    let status = if captured_events > 0 {
+        "LIVE"
+    } else {
+        "WAITING"
+    };
+    let status_fill = if captured_events > 0 {
+        "#59ffd6"
+    } else {
+        "#ffd166"
+    };
+    let display_name = truncate_text(
+        participant["display_name"].as_str().unwrap_or("Individual"),
+        28,
+    );
+    let active_path = labels["active_path"]
+        .as_str()
+        .unwrap_or("not connected")
+        .replace('_', " ");
+    let latest_age = labels["latest_age"].as_str().unwrap_or("none yet");
+    let latest_assurance = labels["latest_assurance"].as_str().unwrap_or("pending");
+    let latest_enforcement = labels["latest_enforcement"].as_str().unwrap_or("unrouted");
+    let token_source = labels["token_source"].as_str().unwrap_or("usage unknown");
+    let failure = labels["actionable_failure"]
+        .as_str()
+        .unwrap_or("0 actionable failures");
+    let today_calls = stats["today_llm_calls"].as_i64().unwrap_or(0);
+    let today_tokens = stats["today_total_tokens"].as_i64().unwrap_or(0);
+    let today_label = if today_calls == 1 {
+        "1 call".to_string()
+    } else {
+        format!("{today_calls} calls")
+    };
+    let signal_line = truncate_text(
+        &format!("signal: prompts hidden | receipts public | {token_source}"),
+        82,
+    );
+    let health_line = truncate_text(
+        &format!("capture health: {latest_enforcement} | {failure} | {today_tokens} tokens today"),
+        88,
+    );
+    Ok(format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{name} individual signal runcard">
+{metadata}
+<rect width="1200" height="630" fill="#06201c"/>
+<rect x="44" y="42" width="1112" height="546" rx="24" fill="#092b25" stroke="#d8fff6" stroke-width="2"/>
+<text x="76" y="104" fill="#59ffd6" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="900">LIVE RUNCARD</text>
+<text x="76" y="174" fill="#f7fff4" font-family="Inter, system-ui, sans-serif" font-size="74" font-weight="950">{name}</text>
+<rect x="756" y="84" width="128" height="34" rx="17" fill="{status_fill}"/>
+<text x="820" y="107" fill="#06201c" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="800" text-anchor="middle">{status}</text>
+<rect x="902" y="84" width="170" height="34" rx="17" fill="#ffd166"/>
+<text x="987" y="107" fill="#06201c" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="800" text-anchor="middle">{assurance}</text>
+<line x1="78" y1="314" x2="990" y2="314" stroke="#23685c" stroke-width="2" stroke-dasharray="10 12"/>
+<path d="M78 304L126 268L174 334L222 283L270 352L318 277L366 326L414 294L462 370L510 285L558 318L606 274L654 342L702 302L750 329L798 279L846 354L894 309L942 296L990 332" fill="none" stroke="#59ffd6" stroke-width="8" stroke-linejoin="round"/>
+<path d="M78 304L126 268L174 334L222 283L270 352L318 277L366 326L414 294L462 370L510 285L558 318L606 274L654 342L702 302L750 329L798 279L846 354L894 309L942 296L990 332" fill="none" stroke="#ffd166" stroke-width="2" stroke-linejoin="round"/>
+<text x="78" y="400" fill="#d8fff6" font-family="Inter, system-ui, sans-serif" font-size="21" font-weight="800">{signal_line}</text>
+<rect x="80" y="416" width="258" height="92" rx="12" fill="#0d3932" stroke="#23685c" stroke-width="2"/>
+<text x="104" y="453" fill="#59ffd6" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="850">active path</text>
+<text x="104" y="486" fill="#f7fff4" font-family="Inter, system-ui, sans-serif" font-size="30" font-weight="950">{active_path}</text>
+<rect x="368" y="416" width="258" height="92" rx="12" fill="#0d3932" stroke="#23685c" stroke-width="2"/>
+<text x="392" y="453" fill="#59ffd6" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="850">latest event</text>
+<text x="392" y="486" fill="#f7fff4" font-family="Inter, system-ui, sans-serif" font-size="30" font-weight="950">{latest_age}</text>
+<rect x="656" y="416" width="258" height="92" rx="12" fill="#0d3932" stroke="#23685c" stroke-width="2"/>
+<text x="680" y="453" fill="#59ffd6" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="850">today</text>
+<text x="680" y="486" fill="#f7fff4" font-family="Inter, system-ui, sans-serif" font-size="30" font-weight="950">{today_label}</text>
+<rect x="960" y="400" width="112" height="112" rx="8" fill="#d8fff6"/>
+<path d="{qr_path}" fill="#06201c" transform="translate(967 407) scale({qr_scale})"/>
+<text x="80" y="560" fill="#a8d9ce" font-family="Inter, system-ui, sans-serif" font-size="19" font-weight="800">{health_line}</text>
+</svg>"##,
+        name = xml_escape(&display_name),
+        status_fill = status_fill,
+        status = status,
+        assurance = xml_escape(&truncate_text(latest_assurance, 18)),
+        signal_line = xml_escape(&signal_line),
+        active_path = xml_escape(&truncate_text(&active_path, 16)),
+        latest_age = xml_escape(&truncate_text(latest_age, 16)),
+        today_label = xml_escape(&today_label),
+        qr_path = qr_path,
+        qr_scale = qr_scale,
+        health_line = xml_escape(&health_line),
+        metadata = metadata
+    ))
+}
+
+fn svg_card_metadata(card: &Value) -> Result<String> {
+    let metadata_json = serde_json::to_string(card).context("encode svg card metadata")?;
+    let metadata_hash = sha256_prefixed(metadata_json.as_bytes());
+    let profile = card["profile"]
+        .as_str()
+        .unwrap_or("https://runcard.dev/runcard/v1");
+    Ok(format!(
+        r#"<metadata id="runcard-card-json" data-content-type="application/json" data-profile="{profile}" data-sha256="{metadata_hash}">{metadata_json}</metadata>"#,
+        profile = xml_escape(profile),
+        metadata_hash = xml_escape(&metadata_hash),
+        metadata_json = xml_escape(&metadata_json)
     ))
 }
 
@@ -2063,167 +2458,6 @@ fn load_captured_events(dir: &PathBuf, event_id: &str) -> Result<Vec<ContestEven
     Ok(events)
 }
 
-async fn read_http_request(stream: &mut TcpStream) -> Result<Option<HttpRequest>> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 8192];
-    let header_end;
-
-    loop {
-        let n = stream.read(&mut tmp).await.context("read request")?;
-        if n == 0 {
-            return Ok(None);
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 2 * 1024 * 1024 {
-            return Err(anyhow!("request headers too large"));
-        }
-        if let Some(pos) = find_header_end(&buf) {
-            header_end = pos;
-            break;
-        }
-    }
-
-    let head = String::from_utf8_lossy(&buf[..header_end]);
-    let mut lines = head.split("\r\n");
-    let request_line = lines
-        .next()
-        .ok_or_else(|| anyhow!("missing request line"))?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts
-        .next()
-        .ok_or_else(|| anyhow!("missing method"))?
-        .to_string();
-    let path = parts
-        .next()
-        .ok_or_else(|| anyhow!("missing path"))?
-        .to_string();
-
-    let mut content_length = 0usize;
-    for line in lines {
-        if let Some((name, value)) = line.split_once(':') {
-            if name.trim().eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse().unwrap_or(0);
-            }
-        }
-    }
-    if content_length > 1024 * 1024 {
-        return Err(anyhow!("request body too large"));
-    }
-
-    let body_start = header_end + 4;
-    while buf.len() < body_start + content_length {
-        let n = stream.read(&mut tmp).await.context("read request body")?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-    }
-
-    let body = buf
-        .get(body_start..body_start + content_length)
-        .unwrap_or_default()
-        .to_vec();
-
-    Ok(Some(HttpRequest { method, path, body }))
-}
-
-fn find_header_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4).position(|w| w == b"\r\n\r\n")
-}
-
-async fn write_json<T: Serialize>(stream: &mut TcpStream, status: u16, value: &T) -> Result<()> {
-    write_json_with_headers(stream, status, Vec::new(), value).await
-}
-
-async fn write_json_with_headers<T: Serialize>(
-    stream: &mut TcpStream,
-    status: u16,
-    extra_headers: Vec<(String, String)>,
-    value: &T,
-) -> Result<()> {
-    let body = serde_json::to_vec_pretty(value).context("encode json response")?;
-    write_response_with_headers(stream, status, "application/json", extra_headers, body).await
-}
-
-async fn write_rate_limited(stream: &mut TcpStream, decision: RateLimitDecision) -> Result<()> {
-    let retry_after = retry_after_secs(decision.retry_after_ms).to_string();
-    write_json_with_headers(
-        stream,
-        429,
-        vec![
-            ("Retry-After".to_string(), retry_after),
-            ("x-ratelimit-limit".to_string(), decision.limit.to_string()),
-            (
-                "x-ratelimit-remaining".to_string(),
-                decision.remaining.to_string(),
-            ),
-        ],
-        &serde_json::json!({
-            "error": "rate limited",
-            "retry_after_ms": decision.retry_after_ms,
-        }),
-    )
-    .await
-}
-
-async fn write_response(
-    stream: &mut TcpStream,
-    status: u16,
-    content_type: &str,
-    body: Vec<u8>,
-) -> Result<()> {
-    write_response_with_headers(stream, status, content_type, Vec::new(), body).await
-}
-
-async fn write_response_with_headers(
-    stream: &mut TcpStream,
-    status: u16,
-    content_type: &str,
-    extra_headers: Vec<(String, String)>,
-    body: Vec<u8>,
-) -> Result<()> {
-    let response = format!(
-        "HTTP/1.1 {status} {}\r\n\
-         Content-Type: {content_type}\r\n\
-         Content-Length: {}\r\n\
-         Access-Control-Allow-Origin: *\r\n\
-         Access-Control-Allow-Headers: content-type\r\n\
-         Connection: close\r\n",
-        status_text(status),
-        body.len()
-    );
-    let mut response = response;
-    for (name, value) in extra_headers {
-        response.push_str(&format!("{name}: {value}\r\n"));
-    }
-    response.push_str("\r\n");
-    stream
-        .write_all(response.as_bytes())
-        .await
-        .context("write response headers")?;
-    stream
-        .write_all(&body)
-        .await
-        .context("write response body")?;
-    let _ = stream.shutdown().await;
-    Ok(())
-}
-
-fn status_text(status: u16) -> &'static str {
-    match status {
-        200 => "OK",
-        201 => "Created",
-        202 => "Accepted",
-        204 => "No Content",
-        400 => "Bad Request",
-        408 => "Request Timeout",
-        429 => "Too Many Requests",
-        404 => "Not Found",
-        503 => "Service Unavailable",
-        _ => "OK",
-    }
-}
-
 fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -2253,6 +2487,9 @@ fn parse_args() -> Result<Config> {
     let mut store_path = PathBuf::from("./llm-events-service.json");
     let mut event_log_dir = PathBuf::from("./llm-event-captures");
     let mut rate_state_path = PathBuf::from("./llm-event-service-rate-state.json");
+    let mut tls_cert_path: Option<PathBuf> = None;
+    let mut tls_key_path: Option<PathBuf> = None;
+    let mut tls_client_ca_path: Option<PathBuf> = None;
     let mut max_connections = 512usize;
     let mut read_timeout_ms = 5_000u64;
     let mut public_requests_per_minute = 1_200u32;
@@ -2321,6 +2558,18 @@ fn parse_args() -> Result<Config> {
                 i += 1;
                 rate_state_path = PathBuf::from(arg_value(&args, i, "--rate-state")?);
             }
+            "--tls-cert" => {
+                i += 1;
+                tls_cert_path = Some(PathBuf::from(arg_value(&args, i, "--tls-cert")?));
+            }
+            "--tls-key" => {
+                i += 1;
+                tls_key_path = Some(PathBuf::from(arg_value(&args, i, "--tls-key")?));
+            }
+            "--tls-client-ca" => {
+                i += 1;
+                tls_client_ca_path = Some(PathBuf::from(arg_value(&args, i, "--tls-client-ca")?));
+            }
             "--max-connections" => {
                 i += 1;
                 max_connections = parse_arg(&args, i, "--max-connections")?;
@@ -2384,6 +2633,9 @@ fn parse_args() -> Result<Config> {
         store_path,
         event_log_dir,
         rate_state_path,
+        tls_cert_path,
+        tls_key_path,
+        tls_client_ca_path,
         max_connections: max_connections.max(1),
         read_timeout_ms: read_timeout_ms.max(1),
         public_requests_per_minute: public_requests_per_minute.max(1),
@@ -2427,7 +2679,10 @@ fn print_usage() {
     eprintln!("  --accepted-tee-platforms tdx,sev-snp,nitro");
     eprintln!("  --store ./llm-events-service.json");
     eprintln!("  --event-log-dir ./llm-event-captures");
-    eprintln!("  --rate-state ./llm-event-service-rate-state.json");
+    eprintln!("  --rate-state ./llm-event-service-rate-state.json  (deprecated compatibility; governor is in-process)");
+    eprintln!("  --tls-cert ./server.pem");
+    eprintln!("  --tls-key ./server-key.pem");
+    eprintln!("  --tls-client-ca ./client-ca.pem");
     eprintln!("  --max-connections 512");
     eprintln!("  --read-timeout-ms 5000");
     eprintln!("  --public-requests-per-minute 1200");

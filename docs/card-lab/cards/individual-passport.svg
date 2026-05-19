@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Individual Passport Runcard</title>
+  <desc id="desc">A personal proof card for an individual participant with device identity and daily stats.</desc>
+  <defs></defs>
+
+<rect x="0" y="0" width="1200" height="630" rx="0" fill="#eef7f4" stroke="none" stroke-width="1" opacity="1"/>
+<rect x="54" y="46" width="1092" height="538" rx="20" fill="#fff8e8" stroke="#11211d" stroke-width="3" opacity="1"/>
+<rect x="86" y="80" width="255" height="396" rx="12" fill="#c8efe8" stroke="#11211d" stroke-width="3" opacity="1"/>
+<rect x="116" y="112" width="195" height="180" rx="12" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+<text x="213" y="221" fill="#fff8e8" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="76" font-weight="950" text-anchor="middle">MP</text>
+<text x="116" y="341" fill="#11211d" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="19" font-weight="850" text-anchor="start">participant</text>
+<text x="116" y="386" fill="#11211d" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="30" font-weight="900" text-anchor="start">@mina.builds</text>
+<g>
+  <rect x="116" y="416" width="158" height="34" rx="17" fill="#ffcf4a" stroke="#11211d" stroke-width="1" opacity="1"/>
+  <text x="195" y="439" fill="#11211d" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="700" text-anchor="middle">public daily</text>
+</g>
+<text x="392" y="124" fill="#116b63" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="25" font-weight="900" text-anchor="start">INDIVIDUAL RUN CARD</text>
+<text x="390" y="188" fill="#11211d" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="70" font-weight="950" text-anchor="start">Mina Park</text>
+<text x="394" y="230" fill="#515b55" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="26" font-weight="700" text-anchor="start">trust over tokens | proof passport</text>
+<g>
+  <rect x="392" y="278" width="218" height="120" rx="10" fill="#fffdf5" stroke="#111" stroke-width="2" opacity="1"/>
+  <rect x="392" y="278" width="12" height="120" rx="6" fill="#116b63" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="420" y="315" fill="#4c4c4c" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="750" text-anchor="start">TODAY</text>
+  <text x="420" y="360" fill="#111" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="39" font-weight="850" text-anchor="start">318k</text>
+  <text x="420" y="384" fill="#4c4c4c" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" text-anchor="start">captured tokens</text>
+</g>
+<g>
+  <rect x="632" y="278" width="188" height="120" rx="10" fill="#fffdf5" stroke="#111" stroke-width="2" opacity="1"/>
+  <rect x="632" y="278" width="12" height="120" rx="6" fill="#ff7b54" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="660" y="315" fill="#4c4c4c" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="750" text-anchor="start">CALLS</text>
+  <text x="660" y="360" fill="#111" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="39" font-weight="850" text-anchor="start">54</text>
+  <text x="660" y="384" fill="#4c4c4c" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" text-anchor="start">all routed</text>
+</g>
+<g>
+  <rect x="842" y="278" width="188" height="120" rx="10" fill="#fffdf5" stroke="#111" stroke-width="2" opacity="1"/>
+  <rect x="842" y="278" width="12" height="120" rx="6" fill="#ffcf4a" stroke="none" stroke-width="1" opacity="1"/>
+  <text x="870" y="315" fill="#4c4c4c" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="750" text-anchor="start">STREAK</text>
+  <text x="870" y="360" fill="#111" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="39" font-weight="850" text-anchor="start">19d</text>
+  <text x="870" y="384" fill="#4c4c4c" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="16" font-weight="600" text-anchor="start">visible proof</text>
+</g>
+<rect x="392" y="436" width="410" height="56" rx="12" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+<text x="418" y="472" fill="#fff8e8" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="22" font-weight="850" text-anchor="start">active path: tee gateway on macOS</text>
+<rect x="830" y="430" width="178" height="72" rx="12" fill="#fffdf5" stroke="#11211d" stroke-width="2" opacity="1"/>
+<text x="854" y="461" fill="#116b63" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="850" text-anchor="start">assurance</text>
+<text x="854" y="489" fill="#11211d" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="25" font-weight="950" text-anchor="start">attested</text>
+<g transform="translate(1006 88)">
+  <rect x="0" y="0" width="104" height="104" rx="8" fill="#fffdf5" stroke="#11211d" stroke-width="2" opacity="1"/>
+  <rect x="6.117647058823529" y="6.117647058823529" width="30.588235294117645" height="30.588235294117645" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="12.235294117647058" y="12.235294117647058" width="18.352941176470587" height="18.352941176470587" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="61.17647058823529" y="6.117647058823529" width="30.588235294117645" height="30.588235294117645" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="67.29411764705881" y="12.235294117647058" width="18.352941176470587" height="18.352941176470587" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="6.117647058823529" y="61.17647058823529" width="30.588235294117645" height="30.588235294117645" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="12.235294117647058" y="67.29411764705881" width="18.352941176470587" height="18.352941176470587" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="42.8235294117647" y="42.8235294117647" width="6.117647058823529" height="18.352941176470587" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="55.05882352941176" y="42.8235294117647" width="12.235294117647058" height="6.117647058823529" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="36.705882352941174" y="67.29411764705881" width="18.352941176470587" height="6.117647058823529" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="61.17647058823529" y="67.29411764705881" width="6.117647058823529" height="18.352941176470587" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="79.52941176470588" y="48.94117647058823" width="12.235294117647058" height="6.117647058823529" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="42.8235294117647" y="85.6470588235294" width="12.235294117647058" height="6.117647058823529" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="85.6470588235294" y="79.52941176470588" width="6.117647058823529" height="12.235294117647058" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="48.94117647058823" y="18.352941176470587" width="6.117647058823529" height="6.117647058823529" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="18.352941176470587" y="48.94117647058823" width="12.235294117647058" height="6.117647058823529" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+  <rect x="73.41176470588235" y="91.76470588235293" width="12.235294117647058" height="6.117647058823529" rx="0" fill="#11211d" stroke="none" stroke-width="1" opacity="1"/>
+</g>
+<text x="1008" y="226" fill="#11211d" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="17" font-weight="850" text-anchor="start">verify</text>
+<line x1="388" y1="532" x2="1110" y2="532" stroke="#11211d" stroke-width="2" opacity="1"/>
+<text x="394" y="560" fill="#515b55" font-family="SFMono-Regular, ui-monospace, Consolas, Liberation Mono, monospace" font-size="18" font-weight="700" text-anchor="start">device key 5f1c...92a0 | latest event: local proxy usage receipt 12s ago</text>
+
+</svg>

@@ -36,6 +36,22 @@ fn wait_http_ok(url: &str) {
     panic!("timed out waiting for {url}");
 }
 
+fn wait_client_ok(client: &reqwest::blocking::Client, url: &str) {
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(5) {
+        if client
+            .get(url)
+            .send()
+            .map(|resp| resp.status().is_success())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("timed out waiting for {url}");
+}
+
 fn get_json(client: &reqwest::blocking::Client, url: String) -> Value {
     let body = client.get(url).send().unwrap().text().unwrap();
     serde_json::from_str(&body).unwrap()
@@ -151,6 +167,14 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
     let team_id = team["team_id"].as_str().unwrap();
     assert_eq!(team["team_name"], "Local Solo");
     assert!(team["runcard_url"].as_str().unwrap().contains(team_id));
+    assert!(team["individual_signal_image_url"]
+        .as_str()
+        .unwrap()
+        .ends_with("/runcard.signal.svg"));
+    assert!(team["individual_signal_json_url"]
+        .as_str()
+        .unwrap()
+        .ends_with("/runcard.signal.json"));
     assert!(team["openai_compatible"]["OPENAI_BASE_URL"]
         .as_str()
         .unwrap()
@@ -208,6 +232,35 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
         .unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("scan to verify"));
+    assert!(svg.contains("runcard-card-json"));
+    assert!(svg.contains("data-content-type=\"application/json\""));
+
+    let signal_json = get_json(
+        &client,
+        format!("{base_url}/e/{event_id}/teams/{team_id}/runcard.signal.json"),
+    );
+    assert_eq!(
+        signal_json["profile"],
+        "https://runcard.dev/llm-individual-signal/v1"
+    );
+    assert_eq!(signal_json["stats"]["captured_events"], 0);
+    assert_eq!(
+        signal_json["labels"]["actionable_failure"],
+        "waiting for first capture"
+    );
+
+    let signal_svg = client
+        .get(format!(
+            "{base_url}/e/{event_id}/teams/{team_id}/runcard.signal.svg"
+        ))
+        .send()
+        .unwrap()
+        .text()
+        .unwrap();
+    assert!(signal_svg.contains("LIVE RUNCARD"));
+    assert!(signal_svg.contains("WAITING"));
+    assert!(signal_svg.contains("runcard-card-json"));
+    assert!(signal_svg.contains("llm-individual-signal/v1"));
 
     let qr = client
         .get(format!(
@@ -244,6 +297,62 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
     );
     assert_eq!(oembed["type"], "rich");
     assert!(oembed["html"].as_str().unwrap().contains("iframe"));
+}
+
+#[test]
+fn hosted_site_direct_rustls_mode_uses_explicit_trust_root() {
+    let port = free_port();
+    let base_url = format!("https://localhost:{port}");
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("store.json");
+    let logs = temp.path().join("logs");
+    let rate = temp.path().join("rate.json");
+    let cert_path = temp.path().join("localhost.pem");
+    let key_path = temp.path().join("localhost-key.pem");
+
+    let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+    let params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
+    let cert = params.self_signed(&key_pair).unwrap();
+    std::fs::write(&cert_path, cert.pem()).unwrap();
+    std::fs::write(&key_path, key_pair.serialize_pem()).unwrap();
+
+    let child = Command::new(env!("CARGO_BIN_EXE_llm-event-service"))
+        .args([
+            "--listen",
+            &format!("127.0.0.1:{port}"),
+            "--public-base-url",
+            &base_url,
+            "--gateway-base-url",
+            "http://127.0.0.1:18088",
+            "--store",
+            store.to_str().unwrap(),
+            "--event-log-dir",
+            logs.to_str().unwrap(),
+            "--rate-state",
+            rate.to_str().unwrap(),
+            "--tls-cert",
+            cert_path.to_str().unwrap(),
+            "--tls-key",
+            key_path.to_str().unwrap(),
+        ])
+        .spawn()
+        .unwrap();
+    let _service = ChildGuard(child);
+
+    assert!(reqwest::blocking::get(format!("{base_url}/healthz")).is_err());
+
+    let client = reqwest::blocking::Client::builder()
+        .add_root_certificate(reqwest::Certificate::from_pem(cert.pem().as_bytes()).unwrap())
+        .build()
+        .unwrap();
+    wait_client_ok(&client, &format!("{base_url}/healthz"));
+
+    let self_host = get_json(
+        &client,
+        format!("{base_url}/.well-known/llm-attested/self-host.json"),
+    );
+    assert_eq!(self_host["runtime"]["tee_attested"], false);
+    assert_eq!(self_host["public_base_url"], base_url);
 }
 
 #[test]
