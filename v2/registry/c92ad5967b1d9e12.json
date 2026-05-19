@@ -1,0 +1,13 @@
+{
+  "approved_at": "2026-05-19T16:20:05Z",
+  "artifact_hash": "c1509f838b85f31e9147c5161710a9be0a7d53d08c583117c32e7719457e86a0da6f54eff0a4e0ead21f778837a56f13",
+  "attestation_cbor_sha256": "9c8a18d8463b25920600473d33bfacc202bc9a1a68f89cdce0095ddca2549d6a",
+  "notes": "Auto-registered from attested self-build workflow run 26109652690: https://github.com/maceip/runcards/actions/runs/26109652690",
+  "platform_measurements": {
+    "tdx_mrtd": "feb7486608382c1ff0e15b4648ddc0acea6ca974eb53e3529f4c4bd5ffbaa20bf335cb75965cea65fe473aed9647c162"
+  },
+  "source_commit": "5a4282fb97cb3b03fc38c203b7ecde1d5662e3e3",
+  "source_hash": "c92ad5967b1d9e12e25e61474f70c8f038b3059eb80ca8a517a32e778f1ee96e9d8da1b6fbb4b1eb390bf5c1085f904e",
+  "status": "recommended",
+  "value_x": "c92ad5967b1d9e12e25e61474f70c8f038b3059eb80ca8a517a32e778f1ee96e9d8da1b6fbb4b1eb390bf5c1085f904e"
+}
