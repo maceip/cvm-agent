@@ -64,18 +64,36 @@ jobs:
           WORK="$GITHUB_WORKSPACE/live-ra"
           rm -rf "$WORK"
           mkdir -p "$WORK"
+          BASE_PORT=$((20000 + (GITHUB_RUN_ID % 20000)))
+          EVENT_PORT="$BASE_PORT"
+          GATEWAY_PORT=$((BASE_PORT + 1))
+          UPSTREAM_PORT=$((BASE_PORT + 2))
+          EVENT_BASE="http://127.0.0.1:${EVENT_PORT}"
+          GATEWAY_BASE="http://127.0.0.1:${GATEWAY_PORT}"
+          UPSTREAM_BASE="http://127.0.0.1:${UPSTREAM_PORT}"
 
           cleanup() {
             for pid_file in "$WORK"/*.pid; do
               [ -f "$pid_file" ] || continue
-              kill "$(cat "$pid_file")" >/dev/null 2>&1 || true
+              pid="$(cat "$pid_file")"
+              kill "$pid" >/dev/null 2>&1 || true
+              sudo kill "$pid" >/dev/null 2>&1 || true
+              pkill -P "$pid" >/dev/null 2>&1 || true
+              sudo pkill -P "$pid" >/dev/null 2>&1 || true
+            done
+            for port in "$EVENT_PORT" "$GATEWAY_PORT" "$UPSTREAM_PORT" 19080 19088 19091; do
+              if command -v fuser >/dev/null 2>&1; then
+                sudo fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+              fi
             done
           }
           trap cleanup EXIT
+          cleanup
 
-          python3 - "$WORK/upstream.pid" <<'PY' &
+          python3 - "$WORK/upstream.pid" "$UPSTREAM_PORT" <<'PY' &
           import json, sys
           from http.server import BaseHTTPRequestHandler, HTTPServer
+          port = int(sys.argv[2])
           class Handler(BaseHTTPRequestHandler):
               def do_POST(self):
                   body = json.dumps({
@@ -91,14 +109,14 @@ jobs:
                   self.wfile.write(body)
               def log_message(self, fmt, *args):
                   return
-          HTTPServer(("127.0.0.1", 19091), Handler).serve_forever()
+          HTTPServer(("127.0.0.1", port), Handler).serve_forever()
           PY
           echo $! > "$WORK/upstream.pid"
 
           ./v2/target/release/llm-event-service \
-            --listen 127.0.0.1:19080 \
-            --public-base-url http://127.0.0.1:19080 \
-            --gateway-base-url http://127.0.0.1:19088 \
+            --listen 127.0.0.1:"$EVENT_PORT" \
+            --public-base-url "$EVENT_BASE" \
+            --gateway-base-url "$GATEWAY_BASE" \
             --store "$WORK/store.json" \
             --event-log-dir "$WORK/event-logs" \
             --rate-state "$WORK/event-rate.json" \
@@ -108,17 +126,17 @@ jobs:
           echo $! > "$WORK/event-service.pid"
 
           for _ in $(seq 1 100); do
-            curl -fsS http://127.0.0.1:19080/healthz >/dev/null && break
+            curl -fsS "$EVENT_BASE/healthz" >/dev/null && break
             sleep 0.1
           done
 
-          curl -fsS -X POST http://127.0.0.1:19080/events \
+          curl -fsS -X POST "$EVENT_BASE/events" \
             -H 'content-type: application/json' \
-            --data '{"name":"Live TDX RA Capture","gateway_base_url":"http://127.0.0.1:19088"}' \
+            --data "{\"name\":\"Live TDX RA Capture\",\"gateway_base_url\":\"$GATEWAY_BASE\"}" \
             > "$WORK/event.json"
           EVENT_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_id"])' "$WORK/event.json")"
           EVENT_SINK_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["event_sink_url"])' "$WORK/event.json")"
-          curl -fsS -X POST "http://127.0.0.1:19080/e/$EVENT_ID/teams" \
+          curl -fsS -X POST "$EVENT_BASE/e/$EVENT_ID/teams" \
             -H 'content-type: application/json' \
             --data '{"team_name":"live-ra-team"}' \
             > "$WORK/team.json"
@@ -133,8 +151,8 @@ jobs:
           sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" run v2 \
             --attestation "$WORK/attest-out/attestation.cbor" \
             --cmd "./target/release/llm-gateway \
-              --listen 127.0.0.1:19088 \
-              --upstream http://127.0.0.1:19091 \
+              --listen 127.0.0.1:$GATEWAY_PORT \
+              --upstream $UPSTREAM_BASE \
               --upstream-no-auth \
               --provider live-tdx-test \
               --hackathon-id $EVENT_ID \
@@ -151,20 +169,20 @@ jobs:
           echo $! > "$WORK/runcard-run.pid"
 
           for _ in $(seq 1 200); do
-            curl -fsS http://127.0.0.1:19088/healthz >/dev/null && break
+            curl -fsS "$GATEWAY_BASE/healthz" >/dev/null && break
             sleep 0.2
           done
-          curl -fsS http://127.0.0.1:19088/.well-known/runcard/receipt > "$WORK/gateway-receipt.cbor"
+          curl -fsS "$GATEWAY_BASE/.well-known/runcard/receipt" > "$WORK/gateway-receipt.cbor"
           test -s "$WORK/gateway-receipt.cbor"
 
-          curl -fsS -X POST http://127.0.0.1:19088/v1/chat/completions \
+          curl -fsS -X POST "$GATEWAY_BASE/v1/chat/completions" \
             -H "authorization: Bearer $TEAM_KEY" \
             -H 'content-type: application/json' \
             -H 'x-llm-attested-agent: live-ra-agent' \
             --data '{"model":"live-ra-model","messages":[{"role":"user","content":"prove RA"}]}' \
             > "$WORK/model-response.json"
 
-          RUNCARD_URL="http://127.0.0.1:19080/e/$EVENT_ID/teams/$TEAM_ID/runcard.json"
+          RUNCARD_URL="$EVENT_BASE/e/$EVENT_ID/teams/$TEAM_ID/runcard.json"
           for _ in $(seq 1 100); do
             curl -fsS "$RUNCARD_URL" > "$WORK/runcard.json"
             python3 - "$WORK/runcard.json" <<'PY' && break || true
