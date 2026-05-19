@@ -24,6 +24,14 @@ jobs:
   attested-build:
     runs-on: [self-hosted, tdx, bountynet]
     steps:
+      - name: Repair runner workspace ownership
+        run: |
+          set -euo pipefail
+          WORK_ROOT="${RUNNER_WORKSPACE:-$(dirname "${GITHUB_WORKSPACE}")}"
+          echo "Repairing ownership under ${WORK_ROOT}"
+          sudo mkdir -p "${GITHUB_WORKSPACE}"
+          sudo chown -R "$(id -u):$(id -g)" "${WORK_ROOT}" "${GITHUB_WORKSPACE}"
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -107,3 +115,9 @@ jobs:
             attest-out/attestation.json
           retention-days: 90
           if-no-files-found: error
+
+      - name: Repair workspace ownership after sudo build
+        if: always()
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
