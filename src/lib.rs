@@ -1,6 +1,10 @@
-pub mod attest;
-pub mod compat;
-pub mod integrity;
+pub mod eat;
+pub mod http_service;
+pub mod llm_attested;
+pub mod llm_attested_net;
+pub mod llm_capture;
+pub mod net;
 pub mod quote;
 pub mod registry;
 pub mod tee;
+pub mod value_x;

@@ -18,6 +18,27 @@ Two papers:
 
 We combine them: build inside a TEE (Attestable Containers), then run inside a TEE (LATTE), and the attestation chains from source to build to runtime. At every step, the hardware is the proof.
 
+## Paper contributions we must implement
+
+### LATTE
+
+1. Two-layer model (platform + portable identity)
+2. Portable identity is baked into enclave image before launch — hardware measurement covers it
+3. Verifier derives expected measurement from (Rcommon, platform, identity) — no external DB needed
+4. Both layers checked independently
+5. Restricted payload loading — payload identity hardcoded before execution, not loadable at runtime
+6. Platform measurement self-contained derivation — verifier carries Rcommon and derives expected M
+7. Signing key — uses platform attestation key, not an app-level key
+
+### Attestable Containers
+
+1. Ratcheting mechanism — source commit hash CT is locked before any untrusted code runs
+2. Attestation binds (PCR, CT, A) — boot image + source snapshot + artifact hash in one document
+3. Build happens inside a TEE — the builder itself is attested
+4. Anytrust model — multiple TEE vendors build the same source, trust at least one
+5. Transparency log — attestation documents published to append-only log
+6. Build-to-runtime chain — paper explicitly leaves this to the consumer
+
 ## The Value X problem
 
 Value X is a single number — a hash — that represents "this exact software." It's the answer to "what's running?"
@@ -40,6 +61,9 @@ For Value X to mean anything:
 - We will not let the system work in "insecure mode" without making that loudly visible.
 - We will not take shortcuts in verification. If a signature can't be checked, the result is "unverified," not "true."
 - We will not optimize for adoption before correctness.
+- We will not spend time on tooling, scripts, automations, or harnesses before the core works.
+- We will never build mock, TODO, or synthetic implementations. If it can't be built for real right now, we don't pretend it exists.
+- We build the core of what needs to be done. Not the scaffolding around it.
 
 ## What we will do
 

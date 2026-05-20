@@ -32,7 +32,7 @@ jobs:
           test -s attest-out/attestation.json
           test -s attest-out/attestation.cbor
 
-      - name: Write v2 registry entry
+      - name: Write registry entry
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_ID: ${{ github.event.workflow_run.id }}
@@ -79,7 +79,7 @@ jobs:
               "attestation_cbor_sha256": cbor_sha256,
           }
 
-          out_dir = pathlib.Path("v2/registry")
+          out_dir = pathlib.Path("registry")
           out_dir.mkdir(parents=True, exist_ok=True)
           out_path = out_dir / f"{value_x[:16]}.json"
           out_path.write_text(json.dumps(entry, indent=2, sort_keys=True) + "\n")
@@ -91,6 +91,6 @@ jobs:
           set -euo pipefail
           git config user.name "runcard-bot"
           git config user.email "bot@runcard.dev"
-          git add v2/registry
+          git add registry
           git diff --cached --quiet || git commit -m "registry: update Value X for ${GITHUB_SHA::7} [skip ci]"
           git push

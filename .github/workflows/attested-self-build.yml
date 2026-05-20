@@ -13,7 +13,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'v2/**'
+      - 'Cargo.*'
+      - 'src/**'
+      - 'tests/**'
+      - 'testdata/**'
+      - 'registry/**'
       - '.github/workflows/attested-self-build.yml'
   workflow_dispatch:
 
@@ -75,12 +79,12 @@ jobs:
           echo "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" >> "$GITHUB_ENV"
           echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
 
-      - name: Attested build of v2/
+      - name: Attested build of repo root
         run: |
           set -euo pipefail
           rm -rf attest-out
           mkdir -p attest-out
-          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build v2 \
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build . \
             --cmd "$CARGO_BIN build --release" \
             --output "$GITHUB_WORKSPACE/attest-out"
           echo "--- output ---"

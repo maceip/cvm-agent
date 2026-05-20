@@ -56,7 +56,7 @@ match.
 
 ## Attested TLS runtime path
 
-For the v2 runtime flow, use:
+For the runtime flow, use:
 
 ```bash
 runcard check https://<domain>/

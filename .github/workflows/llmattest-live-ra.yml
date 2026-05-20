@@ -56,7 +56,7 @@ jobs:
       - name: Build binaries
         run: |
           set -euo pipefail
-          "$CARGO_BIN" build --manifest-path v2/Cargo.toml --release --bins
+          "$CARGO_BIN" build --manifest-path Cargo.toml --release --bins
 
       - name: Run live attested gateway capture E2E
         run: |
@@ -113,7 +113,7 @@ jobs:
           PY
           echo $! > "$WORK/upstream.pid"
 
-          ./v2/target/release/llm-event-service \
+          ./target/release/llm-event-service \
             --listen 127.0.0.1:"$EVENT_PORT" \
             --public-base-url "$EVENT_BASE" \
             --gateway-base-url "$GATEWAY_BASE" \
@@ -144,11 +144,11 @@ jobs:
           TEAM_KEY="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["team_api_key"])' "$WORK/team.json")"
 
           mkdir -p "$WORK/attest-out"
-          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build v2 \
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build . \
             --cmd "$CARGO_BIN build --release --bins" \
             --output "$WORK/attest-out"
 
-          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" run v2 \
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" run . \
             --attestation "$WORK/attest-out/attestation.cbor" \
             --cmd "./target/release/llm-gateway \
               --listen 127.0.0.1:$GATEWAY_PORT \

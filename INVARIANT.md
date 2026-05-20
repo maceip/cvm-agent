@@ -36,3 +36,8 @@ three checks, stop and ask why.
 
 These things matter but they are secondary. Do not build them until
 the three checks above work end-to-end with no gaps.
+
+**Status (April 2026):** All three checks work end-to-end on Nitro,
+SNP, and TDX. Binding hash verified, TEE signature chain verified
+to pinned vendor root CAs, platform measurements extracted and
+compared. The secondary concerns are now appropriate to build.

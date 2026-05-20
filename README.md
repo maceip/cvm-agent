@@ -41,7 +41,7 @@ modern software a simple boundary: no proof, no privilege.
 
 ## What Works Today
 
-The `v2/` implementation already proves the cryptographic core:
+The root implementation already proves the cryptographic core:
 
 - Stage 0 attested build inside a TEE.
 - Stage 1 attested runtime that verifies Stage 0 before serving.
@@ -96,7 +96,7 @@ Drop one step into CI and receive `proof-receipt.json` plus the raw
 `attestation.cbor` evidence.
 
 ```yaml
-- uses: maceip/runcards/v2/action@main
+- uses: maceip/runcards/action@main
   with:
     source: .
     cmd: npm test && npm run build
@@ -105,7 +105,7 @@ Drop one step into CI and receive `proof-receipt.json` plus the raw
 Today this wrapper expects a TEE-capable runner. The mass-market path should not
 ask an app team to own that runner; it should send the checked-out workspace or
 artifact digest to a short-lived shadow build service and return the receipt to
-the normal GitHub job. See [`v2/SHADOW.md`](v2/SHADOW.md).
+the normal GitHub job. See [`SHADOW.md`](SHADOW.md).
 
 ### Policy Gate
 
@@ -172,7 +172,7 @@ identity to receive privilege.
 | AWS Nitro | AWS m5.xlarge enclave | AWS Nitro Root CA | Stage 0 single-process | Proven |
 | Azure SEV-SNP | Azure Standard_DC4as_v5 CVM | AMD PSP + Azure vTOM | blocked before Stage 0 | Tested, not verified |
 
-Real attestation bytes live in [`v2/testdata/chain/`](v2/testdata/chain). The
+Real attestation bytes live in [`testdata/chain/`](testdata/chain). The
 regression suite runs TDX and Nitro verification by default; SNP fixtures are
 present but the full signature test is ignored by default because the captured
 reports currently require live AMD KDS access.
@@ -183,7 +183,7 @@ You need Rust installed to build the current engine locally.
 
 ```bash
 git clone https://github.com/maceip/runcards
-cd runcards/v2
+cd runcards
 cargo build --release --bin runcard
 cargo test
 ```
@@ -227,21 +227,21 @@ hosted shadow receipt option for teams that do not run their own TEE hardware.
 
 ## Repo Map
 
-- [`v2/src/eat.rs`](v2/src/eat.rs): EAT receipt schema and binding bytes.
-- [`v2/src/main.rs`](v2/src/main.rs): build, run, check, enclave commands.
-- [`v2/src/quote/verify.rs`](v2/src/quote/verify.rs): platform quote
+- [`src/eat.rs`](src/eat.rs): EAT receipt schema and binding bytes.
+- [`src/main.rs`](src/main.rs): build, run, check, enclave commands.
+- [`src/quote/verify.rs`](src/quote/verify.rs): platform quote
   verification.
-- [`v2/src/registry.rs`](v2/src/registry.rs): local verification registry.
-- [`v2/action/action.yml`](v2/action/action.yml): GitHub Action wrapper.
-- [`v2/HOSTED_SITE.md`](v2/HOSTED_SITE.md): local testing for the hosted
+- [`src/registry.rs`](src/registry.rs): local verification registry.
+- [`action/action.yml`](action/action.yml): GitHub Action wrapper.
+- [`HOSTED_SITE.md`](HOSTED_SITE.md): local testing for the hosted
   organizer/participant website, inside or outside a TEE.
-- [`v2/SHADOW.md`](v2/SHADOW.md): no-TEE-required shadow attestation plan.
+- [`SHADOW.md`](SHADOW.md): no-TEE-required shadow attestation plan.
 - [`docs/index.html`](docs/index.html): public Runcard narrative and browser
   proof.
 
 ## Status
 
-`v2/` is the current codebase. The proof engine works; the next job is to make
+The repo root is the current codebase. The proof engine works; the next job is to make
 Runcard feel like ordinary developer infrastructure:
 
 - `proof-receipt.json`

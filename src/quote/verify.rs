@@ -1,88 +1,60 @@
-//! Unified quote verification — the "one ring" verifier.
+//! Platform-specific TEE quote verification.
 //!
-//! Verification has two layers (matching LATTE):
-//! 1. Signature check: verify the UnifiedQuote signature (cheap, anyone can do it)
-//! 2. Platform check: verify the raw TEE quote proves the pubkey was TEE-derived
-//!    (requires the full platform_quote, platform-specific logic)
+//! Verifies raw platform quotes from Nitro, SNP, and TDX:
+//!   - ECDSA signature chain (P-384 for Nitro/SNP, P-256 for TDX)
+//!   - Certificate chain validation back to pinned vendor root CA
+//!   - report_data binding (proves specific data was committed to the quote)
 //!
-//! On-chain oracles only need layer 1 + trust that layer 2 was done at submission.
-//! Off-chain verifiers do both layers.
+//! See CONSTITUTION.md: verification is the core. Without it, quotes are just bytes.
 
-use super::{Platform, UnifiedQuote};
+use super::Platform;
 use sha2::{Digest, Sha256};
 
-/// Result of full verification (both layers).
-#[derive(Debug)]
-pub struct VerificationResult {
-    /// Layer 1: signature over unified fields is valid.
-    pub signature_valid: bool,
-    /// Layer 2: platform quote is genuine and binds to this pubkey.
-    pub platform_valid: bool,
-    /// The value_x extracted from the quote.
-    pub value_x: [u8; 48],
-    /// Which platform produced this quote.
-    pub platform: Platform,
-    /// PCR / measurement values extracted from the platform quote.
-    pub measurements: Vec<(String, Vec<u8>)>,
-}
-
-/// Verify a UnifiedQuote: signature + platform quote.
+/// Verify a raw platform quote: signature chain + report_data binding.
 ///
-/// If `expected_value_x` is provided, also checks it matches.
-pub fn verify_unified_quote(
-    quote: &UnifiedQuote,
-    expected_value_x: Option<&[u8; 48]>,
-) -> Result<VerificationResult, VerifyError> {
-    // Layer 1: Check ed25519 signature
-    let signature_valid = quote.verify_signature().is_ok();
-    if !signature_valid {
-        return Err(VerifyError::InvalidSignature);
-    }
-
-    // Check value_x if expected
-    if let Some(expected) = expected_value_x {
-        if &quote.value_x != expected {
-            return Err(VerifyError::ValueXMismatch {
-                expected: hex::encode(expected),
-                got: hex::encode(quote.value_x),
-            });
-        }
-    }
-
-    // Layer 2: Verify platform-specific quote
-    let platform_quote = quote
-        .platform_quote
-        .as_ref()
-        .ok_or(VerifyError::NoPlatformQuote)?;
-
-    // Verify that platform_quote_hash matches
-    let actual_hash: [u8; 32] = Sha256::digest(platform_quote).into();
-    if actual_hash != quote.platform_quote_hash {
-        return Err(VerifyError::QuoteHashMismatch);
-    }
-
-    // Platform-specific verification.
-    // Pass both pubkey and value_x — the verifier checks that
-    // report_data[0..32] == sha256(pubkey || value_x), binding BOTH
-    // to the hardware quote. See INVARIANT.md check #3.
-    let (platform_valid, measurements) = match quote.platform {
+/// `expected_binding` is the EAT `binding_bytes()` value committed to
+/// report_data[0..32] by the producer before quote collection.
+///
+/// Returns Ok(measurements) if the quote is genuine and binds to the expected data.
+pub fn verify_platform_quote(
+    platform: Platform,
+    raw_quote: &[u8],
+    expected_binding: &[u8; 32],
+) -> Result<Vec<(String, Vec<u8>)>, VerifyError> {
+    match platform {
         #[cfg(feature = "nitro")]
-        Platform::Nitro => verify_nitro_quote(platform_quote, &quote.pubkey, &quote.value_x)?,
+        Platform::Nitro => {
+            let (valid, measurements) = verify_nitro_quote(raw_quote, expected_binding)?;
+            if !valid {
+                return Err(VerifyError::PlatformError(
+                    "Nitro: platform signature chain did not verify".into(),
+                ));
+            }
+            Ok(measurements)
+        }
         #[cfg(feature = "sev-snp")]
-        Platform::SevSnp => verify_snp_quote(platform_quote, &quote.pubkey, &quote.value_x)?,
+        Platform::SevSnp => {
+            let (valid, measurements) = verify_snp_quote_raw(raw_quote, expected_binding)?;
+            if !valid {
+                return Err(VerifyError::PlatformError(
+                    "SNP: platform signature chain did not verify".into(),
+                ));
+            }
+            Ok(measurements)
+        }
         #[cfg(feature = "tdx")]
-        Platform::Tdx => verify_tdx_quote(platform_quote, &quote.pubkey, &quote.value_x)?,
+        Platform::Tdx => {
+            let (valid, measurements) = verify_tdx_quote_raw(raw_quote, expected_binding)?;
+            if !valid {
+                return Err(VerifyError::PlatformError(
+                    "TDX: platform signature chain did not verify".into(),
+                ));
+            }
+            Ok(measurements)
+        }
         #[allow(unreachable_patterns)]
-        _ => return Err(VerifyError::UnsupportedPlatform(quote.platform)),
-    };
-
-    Ok(VerificationResult {
-        signature_valid,
-        platform_valid,
-        value_x: quote.value_x,
-        platform: quote.platform,
-        measurements,
-    })
+        _ => Err(VerifyError::UnsupportedPlatform(platform)),
+    }
 }
 
 // ============================================================================
@@ -91,10 +63,7 @@ pub fn verify_unified_quote(
 
 /// Verify that `subject` cert was signed by `issuer` cert using ECDSA-P384.
 #[cfg(feature = "sev-snp")]
-fn verify_cert_chain_p384(
-    issuer_der: &[u8],
-    subject_der: &[u8],
-) -> Result<bool, VerifyError> {
+fn verify_cert_chain_p384(issuer_der: &[u8], subject_der: &[u8]) -> Result<bool, VerifyError> {
     use der::{Decode, Encode};
     use p384::ecdsa::{self, signature::hazmat::PrehashVerifier};
     use sha2::Sha384;
@@ -131,10 +100,7 @@ fn verify_cert_chain_p384(
 
 /// Verify that `subject` cert was signed by `issuer` cert using ECDSA-P256.
 #[cfg(feature = "tdx")]
-fn verify_cert_chain_p256(
-    issuer_der: &[u8],
-    subject_der: &[u8],
-) -> Result<bool, VerifyError> {
+fn verify_cert_chain_p256(issuer_der: &[u8], subject_der: &[u8]) -> Result<bool, VerifyError> {
     use der::{Decode, Encode};
     use p256::ecdsa::{self, signature::hazmat::PrehashVerifier};
     use x509_cert::Certificate;
@@ -187,8 +153,7 @@ fn verify_cert_chain_p256(
 #[cfg(feature = "nitro")]
 fn verify_nitro_quote(
     raw_quote: &[u8],
-    expected_pubkey: &[u8; 32],
-    expected_value_x: &[u8; 48],
+    expected_binding: &[u8; 32],
 ) -> Result<(bool, Vec<(String, Vec<u8>)>), VerifyError> {
     use p384::ecdsa::{self, signature::hazmat::PrehashVerifier};
     use serde_cbor::Value;
@@ -297,28 +262,25 @@ fn verify_nitro_quote(
         }
     }
 
-    // --- Binding check: user_data == sha256(pubkey || value_x) ---
-    // This proves both the pubkey and value_x were committed to this attestation.
-    let mut binding = Vec::with_capacity(32 + 48);
-    binding.extend_from_slice(expected_pubkey);
-    binding.extend_from_slice(expected_value_x);
-    let expected_binding = Sha256::digest(&binding).to_vec();
-
+    // --- Binding check: user_data[0..32] == expected_binding ---
+    // user_data carries the full 64-byte report_data:
+    //   [0..32]  = sha256(CT || A || X) — the binding hash
+    //   [32..64] = value_x[0..32] prefix
+    // Same check as SNP/TDX: first 32 bytes must match expected_binding.
     let binding_ok = match &user_data {
-        Some(ud) => {
-            if ud == &expected_binding {
-                true
-            } else {
-                // Fallback: check legacy format sha256(pubkey) for backward compat with old quotes
-                ud == &Sha256::digest(expected_pubkey).to_vec()
-            }
-        }
-        None => false,
+        Some(ud) if ud.len() >= 32 => ud[..32] == expected_binding[..],
+        _ => false,
     };
     if !binding_ok {
-        return Err(VerifyError::PlatformError(
-            "Nitro: user_data does not contain sha256(pubkey||value_x) binding".into(),
-        ));
+        let got = user_data
+            .as_ref()
+            .map(|ud| hex::encode(&ud[..ud.len().min(32)]))
+            .unwrap_or_default();
+        return Err(VerifyError::PlatformError(format!(
+            "Nitro: user_data binding mismatch\n  expected: {}\n  got:      {}",
+            hex::encode(expected_binding),
+            got
+        )));
     }
 
     // --- COSE_Sign1 signature verification ---
@@ -389,10 +351,7 @@ fn verify_nitro_quote(
         verify_cert_chain_p384_nitro(&cab[0], &cab[0])?;
 
         // Pin root CA fingerprint
-        if !super::roots::verify_root_fingerprint(
-            &cab[0],
-            super::roots::AWS_NITRO_ROOT_SHA256,
-        ) {
+        if !super::roots::verify_root_fingerprint(&cab[0], super::roots::AWS_NITRO_ROOT_SHA256) {
             return Err(VerifyError::PlatformError(
                 "Nitro: root CA fingerprint does not match pinned AWS Nitro Root CA".into(),
             ));
@@ -411,10 +370,7 @@ fn verify_nitro_quote(
 
 /// Verify cert chain link for Nitro (ECDSA-P384 certs).
 #[cfg(feature = "nitro")]
-fn verify_cert_chain_p384_nitro(
-    issuer_der: &[u8],
-    subject_der: &[u8],
-) -> Result<(), VerifyError> {
+fn verify_cert_chain_p384_nitro(issuer_der: &[u8], subject_der: &[u8]) -> Result<(), VerifyError> {
     use der::{Decode, Encode};
     use p384::ecdsa::{self, signature::hazmat::PrehashVerifier};
     use sha2::Sha384;
@@ -463,8 +419,7 @@ fn verify_cert_chain_p384_nitro(
 #[cfg(feature = "sev-snp")]
 fn verify_snp_quote(
     raw_quote: &[u8],
-    expected_pubkey: &[u8; 32],
-    expected_value_x: &[u8; 48],
+    expected_binding: &[u8; 32],
 ) -> Result<(bool, Vec<(String, Vec<u8>)>), VerifyError> {
     use p384::ecdsa::{self, signature::hazmat::PrehashVerifier};
     use sha2::Sha384;
@@ -476,7 +431,8 @@ fn verify_snp_quote(
     if raw_quote.len() < 0x318 {
         return Err(VerifyError::PlatformError(format!(
             "SNP report too short for signature verification: {} bytes (need >= {})",
-            raw_quote.len(), 0x318
+            raw_quote.len(),
+            0x318
         )));
     }
 
@@ -494,26 +450,17 @@ fn verify_snp_quote(
     // Extract REPORT_DATA (64 bytes at offset 0x050)
     let report_data = &raw_quote[0x050..0x090];
 
-    // Verify binding: REPORT_DATA[0..32] == sha256(pubkey || value_x)
-    let mut binding = Vec::with_capacity(32 + 48);
-    binding.extend_from_slice(expected_pubkey);
-    binding.extend_from_slice(expected_value_x);
-    let expected_binding: [u8; 32] = Sha256::digest(&binding).into();
-
     if report_data[..32] != expected_binding[..] {
-        // Fallback: check legacy format sha256(pubkey) for backward compat
-        let legacy_hash: [u8; 32] = Sha256::digest(expected_pubkey).into();
-        if report_data[..32] != legacy_hash[..] {
-            return Err(VerifyError::PlatformError(
-                "SNP: REPORT_DATA[0..32] does not match sha256(pubkey||value_x) binding".into(),
-            ));
-        }
+        return Err(VerifyError::PlatformError(
+            "SNP: REPORT_DATA[0..32] does not match EAT binding".into(),
+        ));
     }
 
     let host_data = raw_quote[0x0C0..0x0E0].to_vec();
 
     // --- ECDSA-P384 signature verification ---
     let mut sig_verified = false;
+    let mut chain_verified = false;
     {
         let signed_data = &raw_quote[0x000..0x2A0];
 
@@ -584,8 +531,9 @@ fn verify_snp_quote(
             // Verify VCEK → ASK → ARK chain if available
             if let (Some(ref ask), Some(ref ark)) = (&ask_der, &ark_der) {
                 verify_cert_chain_p384(ark, ark)?; // ARK is self-signed
-                // Pin AMD root fingerprint
-                let version = u32::from_le_bytes(raw_quote[0..4].try_into().expect("version bytes"));
+                                                   // Pin AMD root fingerprint
+                let version =
+                    u32::from_le_bytes(raw_quote[0..4].try_into().expect("version bytes"));
                 let expected_fp = if version >= 5 {
                     super::roots::AMD_ARK_GENOA_SHA256
                 } else {
@@ -598,6 +546,7 @@ fn verify_snp_quote(
                 }
                 verify_cert_chain_p384(ark, ask)?; // ARK signed ASK
                 verify_cert_chain_p384(ask, vcek)?; // ASK signed VCEK
+                chain_verified = true;
             }
         }
         // If no VCEK available (KDS also failed), sig_verified stays false
@@ -611,6 +560,10 @@ fn verify_snp_quote(
             "SIG_VERIFIED".to_string(),
             vec![if sig_verified { 1 } else { 0 }],
         ),
+        (
+            "CHAIN_VERIFIED".to_string(),
+            vec![if chain_verified { 1 } else { 0 }],
+        ),
     ];
 
     if raw_quote.len() > 0x4A0 || raw_quote.len() > 0x480 {
@@ -618,10 +571,10 @@ fn verify_snp_quote(
     }
 
     // platform_valid reflects actual crypto verification status.
-    // If VCEK certs weren't available, sig_verified=false and the caller
-    // sees platform_valid=false + SIG_VERIFIED=0 in measurements.
+    // If VCEK or its AMD root chain are unavailable, the caller sees
+    // platform_valid=false plus SIG_VERIFIED/CHAIN_VERIFIED=0.
     // Pubkey binding was already checked above (would have returned Err).
-    Ok((sig_verified, measurements))
+    Ok((sig_verified && chain_verified, measurements))
 }
 
 /// Parse the SNP_GET_EXT_REPORT certificate table.
@@ -636,16 +589,16 @@ fn parse_snp_cert_table(
 ) {
     // Known GUIDs for SNP cert table entries
     const VCEK_GUID: [u8; 16] = [
-        0x63, 0xda, 0x75, 0x8d, 0xe6, 0x64, 0x56, 0x45, 0xb4, 0x58, 0x73, 0x2a, 0x2b, 0x5d,
-        0xcc, 0xf7,
+        0x63, 0xda, 0x75, 0x8d, 0xe6, 0x64, 0x56, 0x45, 0xb4, 0x58, 0x73, 0x2a, 0x2b, 0x5d, 0xcc,
+        0xf7,
     ];
     const ASK_GUID: [u8; 16] = [
-        0x4a, 0xb7, 0xb3, 0x79, 0xbb, 0xac, 0x4f, 0xe4, 0xa0, 0x2f, 0x05, 0xae, 0xf3, 0x27,
-        0xc7, 0x82,
+        0x4a, 0xb7, 0xb3, 0x79, 0xbb, 0xac, 0x4f, 0xe4, 0xa0, 0x2f, 0x05, 0xae, 0xf3, 0x27, 0xc7,
+        0x82,
     ];
     const ARK_GUID: [u8; 16] = [
-        0xc0, 0xb4, 0x06, 0xa4, 0x43, 0x8f, 0x4a, 0xf3, 0xab, 0x09, 0xa6, 0xf2, 0xea, 0xb4,
-        0x43, 0x74,
+        0xc0, 0xb4, 0x06, 0xa4, 0x43, 0x8f, 0x4a, 0xf3, 0xab, 0x09, 0xa6, 0xf2, 0xea, 0xb4, 0x43,
+        0x74,
     ];
 
     // Cert table starts right after the 1184-byte report
@@ -714,8 +667,7 @@ fn parse_snp_cert_table(
 #[cfg(feature = "tdx")]
 fn verify_tdx_quote(
     raw_quote: &[u8],
-    expected_pubkey: &[u8; 32],
-    expected_value_x: &[u8; 48],
+    expected_binding: &[u8; 32],
 ) -> Result<(bool, Vec<(String, Vec<u8>)>), VerifyError> {
     use p256::ecdsa::{self, signature::hazmat::PrehashVerifier};
 
@@ -753,25 +705,14 @@ fn verify_tdx_quote(
     let rtmr3 = body[472..520].to_vec();
     let report_data = &body[520..584];
 
-    // Verify binding: REPORTDATA[0..32] == sha256(pubkey || value_x)
-    let mut binding = Vec::with_capacity(32 + 48);
-    binding.extend_from_slice(expected_pubkey);
-    binding.extend_from_slice(expected_value_x);
-    let expected_binding: [u8; 32] = Sha256::digest(&binding).into();
-
     if report_data[..32] != expected_binding[..] {
-        // Fallback: check legacy format sha256(pubkey) for backward compat
-        let legacy_hash: [u8; 32] = Sha256::digest(expected_pubkey).into();
-        if report_data[..32] != legacy_hash[..] {
-            return Err(VerifyError::PlatformError(
-                "TDX: REPORTDATA[0..32] does not match sha256(pubkey||value_x) binding".into(),
-            ));
-        }
+        return Err(VerifyError::PlatformError(
+            "TDX: REPORTDATA[0..32] does not match EAT binding".into(),
+        ));
     }
 
     // --- Parse signature section ---
-    let sig_data_size =
-        u32::from_le_bytes(raw_quote[632..636].try_into().unwrap()) as usize;
+    let sig_data_size = u32::from_le_bytes(raw_quote[632..636].try_into().unwrap()) as usize;
     if raw_quote.len() < 636 + sig_data_size {
         return Err(VerifyError::PlatformError(
             "TDX: quote truncated in signature section".into(),
@@ -810,10 +751,8 @@ fn verify_tdx_quote(
     }
 
     // 4. Parse CertificationData at offset 128
-    let cert_data_type =
-        u16::from_le_bytes(sig_data[128..130].try_into().unwrap());
-    let cert_data_size =
-        u32::from_le_bytes(sig_data[130..134].try_into().unwrap()) as usize;
+    let cert_data_type = u16::from_le_bytes(sig_data[128..130].try_into().unwrap());
+    let cert_data_size = u32::from_le_bytes(sig_data[130..134].try_into().unwrap()) as usize;
 
     let mut qe_verified = false;
     let mut chain_verified = false;
@@ -827,8 +766,7 @@ fn verify_tdx_quote(
             // QE Report Signature (64 bytes)
             let qe_report_sig_bytes = &qe_cd[384..448];
             // QE Auth Data
-            let qe_auth_size =
-                u16::from_le_bytes(qe_cd[448..450].try_into().unwrap()) as usize;
+            let qe_auth_size = u16::from_le_bytes(qe_cd[448..450].try_into().unwrap()) as usize;
             let qe_auth = if qe_cd.len() >= 450 + qe_auth_size {
                 &qe_cd[450..450 + qe_auth_size]
             } else {
@@ -851,12 +789,11 @@ fn verify_tdx_quote(
             // 6. Parse inner CertificationData (cert chain)
             let inner_off = 450 + qe_auth_size;
             if qe_cd.len() >= inner_off + 6 {
-                let inner_type = u16::from_le_bytes(
-                    qe_cd[inner_off..inner_off + 2].try_into().unwrap(),
-                );
-                let inner_size = u32::from_le_bytes(
-                    qe_cd[inner_off + 2..inner_off + 6].try_into().unwrap(),
-                ) as usize;
+                let inner_type =
+                    u16::from_le_bytes(qe_cd[inner_off..inner_off + 2].try_into().unwrap());
+                let inner_size =
+                    u32::from_le_bytes(qe_cd[inner_off + 2..inner_off + 6].try_into().unwrap())
+                        as usize;
 
                 if inner_type == 5 && qe_cd.len() >= inner_off + 6 + inner_size {
                     let pem_data = &qe_cd[inner_off + 6..inner_off + 6 + inner_size];
@@ -882,9 +819,9 @@ fn verify_tdx_quote(
                             .subject_public_key
                             .raw_bytes();
                         let pck_vk =
-                            ecdsa::VerifyingKey::from_sec1_bytes(pck_pk_bytes).map_err(
-                                |e| VerifyError::PlatformError(format!("PCK P-256 key: {e}")),
-                            )?;
+                            ecdsa::VerifyingKey::from_sec1_bytes(pck_pk_bytes).map_err(|e| {
+                                VerifyError::PlatformError(format!("PCK P-256 key: {e}"))
+                            })?;
 
                         let qe_sig =
                             ecdsa::Signature::from_slice(qe_report_sig_bytes).map_err(|e| {
@@ -900,8 +837,7 @@ fn verify_tdx_quote(
                             // Verify each link
                             let mut chain_ok = true;
                             for i in (0..der_certs.len() - 1).rev() {
-                                if verify_cert_chain_p256(&der_certs[i + 1], &der_certs[i])
-                                    .is_err()
+                                if verify_cert_chain_p256(&der_certs[i + 1], &der_certs[i]).is_err()
                                 {
                                     chain_ok = false;
                                     break;
@@ -909,8 +845,7 @@ fn verify_tdx_quote(
                             }
                             // Verify root is self-signed
                             if chain_ok {
-                                chain_ok =
-                                    verify_cert_chain_p256(root_der, root_der).is_ok();
+                                chain_ok = verify_cert_chain_p256(root_der, root_der).is_ok();
                             }
                             // Pin Intel SGX Root CA fingerprint
                             if chain_ok {
@@ -957,7 +892,10 @@ fn verify_tdx_quote(
         ),
     ];
 
-    Ok((quote_sig_valid && qe_verified, measurements))
+    Ok((
+        quote_sig_valid && qe_verified && chain_verified,
+        measurements,
+    ))
 }
 
 /// Parse a PEM certificate chain string into a Vec of DER byte vectors.
@@ -979,16 +917,31 @@ fn parse_pem_chain(pem_str: &str) -> Vec<Vec<u8>> {
     certs
 }
 
+// ============================================================================
+// EAT binding verification wrappers.
+// These pass the already-computed EAT binding into the full platform
+// verifier instead of reconstructing legacy sha256(pubkey || value_x)
+// bindings.
+// ============================================================================
+
+#[cfg(feature = "sev-snp")]
+fn verify_snp_quote_raw(
+    raw_quote: &[u8],
+    expected_binding: &[u8; 32],
+) -> Result<(bool, Vec<(String, Vec<u8>)>), VerifyError> {
+    verify_snp_quote(raw_quote, expected_binding)
+}
+
+#[cfg(feature = "tdx")]
+fn verify_tdx_quote_raw(
+    raw_quote: &[u8],
+    expected_binding: &[u8; 32],
+) -> Result<(bool, Vec<(String, Vec<u8>)>), VerifyError> {
+    verify_tdx_quote(raw_quote, expected_binding)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {
-    #[error("invalid unified quote signature")]
-    InvalidSignature,
-    #[error("value_x mismatch: expected {expected}, got {got}")]
-    ValueXMismatch { expected: String, got: String },
-    #[error("platform_quote not included (compact form — fetch full quote for layer 2)")]
-    NoPlatformQuote,
-    #[error("platform_quote_hash does not match platform_quote content")]
-    QuoteHashMismatch,
     #[error("unsupported platform: {0:?}")]
     UnsupportedPlatform(Platform),
     #[error("platform quote verification failed: {0}")]

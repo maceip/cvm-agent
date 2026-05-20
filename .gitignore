@@ -1,9 +1,11 @@
 .DS_Store
 **/.DS_Store
 /target/
-/v2/target/
 /dist/
+/bountynet-test
 *.swp
 *.swo
 .env
 .local/
+HANDOFF.md
+TIMELINE.md

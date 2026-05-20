@@ -10,11 +10,19 @@ on:
   push:
     branches: [main]
     paths:
-      - 'v2/**'
+      - 'Cargo.*'
+      - 'src/**'
+      - 'tests/**'
+      - 'testdata/**'
+      - 'packaging/**'
+      - 'capture/**'
+      - 'LLM_ATTESTED.md'
       - '.github/workflows/llmattest-release.yml'
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 jobs:
   package:
@@ -40,7 +48,7 @@ jobs:
         run: rustup target add ${{ matrix.target }}
 
       - name: Test llmattest unit surface
-        run: cargo test --manifest-path v2/Cargo.toml llm_attested --bin llmattest --lib
+        run: cargo test --manifest-path Cargo.toml llm_attested --bin llmattest --lib
 
       - name: Package Unix archive
         if: runner.os != 'Windows'
@@ -48,8 +56,8 @@ jobs:
           LLMATTEST_VERSION: ${{ github.event.inputs.version || github.sha }}
         run: |
           set -euo pipefail
-          chmod +x v2/packaging/package-llmattest.sh
-          v2/packaging/package-llmattest.sh --target "${{ matrix.target }}" --version "$LLMATTEST_VERSION"
+          chmod +x packaging/package-llmattest.sh
+          packaging/package-llmattest.sh --target "${{ matrix.target }}" --version "$LLMATTEST_VERSION"
 
       - name: Package Windows archive
         if: runner.os == 'Windows'
@@ -57,12 +65,12 @@ jobs:
         env:
           LLMATTEST_VERSION: ${{ github.event.inputs.version || github.sha }}
         run: |
-          cargo build --manifest-path v2/Cargo.toml --release --bin llmattest --target "${{ matrix.target }}"
+          cargo build --manifest-path Cargo.toml --release --bin llmattest --target "${{ matrix.target }}"
           $pkg = "llmattest-$env:LLMATTEST_VERSION-${{ matrix.target }}"
           $work = Join-Path $env:RUNNER_TEMP $pkg
           New-Item -ItemType Directory -Path $work | Out-Null
-          Copy-Item "v2/target/${{ matrix.target }}/release/llmattest.exe" "$work/llmattest.exe"
-          Copy-Item "v2/LLM_ATTESTED.md" "$work/LLM_ATTESTED.md"
+          Copy-Item "target/${{ matrix.target }}/release/llmattest.exe" "$work/llmattest.exe"
+          Copy-Item "LLM_ATTESTED.md" "$work/LLM_ATTESTED.md"
           @{
             name = "llmattest"
             version = $env:LLMATTEST_VERSION
@@ -70,14 +78,129 @@ jobs:
             binary = "llmattest.exe"
             entrypoint = "llmattest start --team-payload team.json -- <agent command>"
           } | ConvertTo-Json | Set-Content "$work/manifest.json"
-          New-Item -ItemType Directory -Path "v2/dist" -Force | Out-Null
-          Compress-Archive -Path $work -DestinationPath "v2/dist/$pkg.zip" -Force
-          Get-FileHash "v2/dist/$pkg.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $pkg.zip" } | Set-Content "v2/dist/$pkg.zip.sha256"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          Compress-Archive -Path $work -DestinationPath "dist/$pkg.zip" -Force
+          Get-FileHash "dist/$pkg.zip" -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $pkg.zip" } | Set-Content "dist/$pkg.zip.sha256"
+
+      - name: Generate GitHub artifact provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/llmattest-*
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
           name: llmattest-${{ matrix.target }}
           path: |
-            v2/dist/llmattest-*
+            dist/llmattest-*
           if-no-files-found: error
+
+  tdx-attested-linux:
+    name: TDX attested Linux binary
+    runs-on: [self-hosted, tdx, bountynet]
+    timeout-minutes: 45
+
+    steps:
+      - name: Repair runner workspace ownership
+        run: |
+          set -euo pipefail
+          WORK_ROOT="${RUNNER_WORKSPACE:-$(dirname "${GITHUB_WORKSPACE}")}"
+          sudo mkdir -p "${GITHUB_WORKSPACE}"
+          sudo chown -R "$(id -u):$(id -g)" "${WORK_ROOT}" "${GITHUB_WORKSPACE}"
+
+      - uses: actions/checkout@v4
+
+      - name: Prepare Rust toolchain and Runcard builder
+        run: |
+          set -euo pipefail
+          if ! command -v cc >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential cmake pkg-config curl
+          elif ! command -v curl >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y curl
+          fi
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          CARGO_BIN="$(command -v cargo || true)"
+          if [ -z "$CARGO_BIN" ] && [ -x "$HOME/.cargo/bin/cargo" ]; then
+            CARGO_BIN="$HOME/.cargo/bin/cargo"
+          fi
+          RUNCARD_BIN="$(command -v runcard || command -v bountynet || true)"
+          if [ -z "$CARGO_BIN" ]; then
+            echo "cargo was not found"
+            exit 1
+          fi
+          if [ -z "$RUNCARD_BIN" ]; then
+            echo "self-hosted TDX runner must provide runcard or bountynet"
+            exit 1
+          fi
+          "$CARGO_BIN" --version
+          "$RUNCARD_BIN" 2>&1 | head -4 || true
+          echo "CARGO_BIN=$CARGO_BIN" >> "$GITHUB_ENV"
+          echo "RUNCARD_BIN=$RUNCARD_BIN" >> "$GITHUB_ENV"
+          echo "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" >> "$GITHUB_ENV"
+          echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
+
+      - name: Build llmattest inside TDX and emit Runcard attestation
+        env:
+          LLMATTEST_VERSION: ${{ github.event.inputs.version || github.sha }}
+        run: |
+          set -euo pipefail
+          WORK="$GITHUB_WORKSPACE/tdx-release"
+          rm -rf "$WORK"
+          mkdir -p "$WORK/attest-out" "$WORK/package"
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build . \
+            --cmd "$CARGO_BIN build --release --bin llmattest" \
+            --output "$WORK/attest-out"
+          sudo chown -R "$(id -u):$(id -g)" "$WORK"
+
+          install -m 0755 "$WORK/attest-out/artifact" "$WORK/package/llmattest"
+          cp "$WORK/attest-out/attestation.cbor" "$WORK/package/llmattest.tdx.eat.cbor"
+          cp "$WORK/attest-out/attestation.json" "$WORK/package/llmattest.tdx.attestation.json"
+          cp LLM_ATTESTED.md "$WORK/package/LLM_ATTESTED.md"
+          cat > "$WORK/package/manifest.json" <<EOF
+          {
+            "name": "llmattest",
+            "version": "$LLMATTEST_VERSION",
+            "target": "x86_64-unknown-linux-gnu",
+            "binary": "llmattest",
+            "hardware_attestation": "llmattest.tdx.eat.cbor",
+            "attestation_summary": "llmattest.tdx.attestation.json",
+            "entrypoint": "llmattest start --team-payload team.json -- <agent command>"
+          }
+          EOF
+
+          PKG="llmattest-$LLMATTEST_VERSION-x86_64-unknown-linux-gnu-tdx-attested"
+          tar -C "$WORK/package" -czf "$WORK/$PKG.tar.gz" .
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$WORK" && sha256sum "$PKG.tar.gz" > "$PKG.tar.gz.sha256")
+          else
+            (cd "$WORK" && shasum -a 256 "$PKG.tar.gz" > "$PKG.tar.gz.sha256")
+          fi
+          echo "TDX_PACKAGE=$WORK/$PKG.tar.gz" >> "$GITHUB_ENV"
+          echo "TDX_PACKAGE_SHA=$WORK/$PKG.tar.gz.sha256" >> "$GITHUB_ENV"
+
+      - name: Generate GitHub provenance for TDX package
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            ${{ env.TDX_PACKAGE }}
+            ${{ env.TDX_PACKAGE_SHA }}
+
+      - name: Upload TDX attested package
+        uses: actions/upload-artifact@v4
+        with:
+          name: llmattest-x86_64-unknown-linux-gnu-tdx-attested
+          path: |
+            ${{ env.TDX_PACKAGE }}
+            ${{ env.TDX_PACKAGE_SHA }}
+          if-no-files-found: error
+
+      - name: Repair workspace ownership after sudo build
+        if: always()
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
