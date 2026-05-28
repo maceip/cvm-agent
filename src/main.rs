@@ -31,6 +31,7 @@
 //!   5. Optionally verifies A against a local artifact
 
 mod eat;
+mod leaf;
 mod net;
 mod quote;
 mod registry;
@@ -72,6 +73,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         "merge" => cmd_merge(&args[2..]),
+        "leaf" => cmd_leaf(&args[2..]),
         _ => {
             print_usage();
             std::process::exit(1);
@@ -91,6 +93,7 @@ fn print_usage() {
     eprintln!("  {bin} enclave <source-dir> [--cmd \"...\"]  (Nitro: build+serve in one)");
     eprintln!("  {bin} proxy   --cid <enclave-cid> [--acme]  (parent: TCP:443 → vsock + ACME)");
     eprintln!("  {bin} merge   <att1.json> <att2.json> [...] --output merged.json");
+    eprintln!("  {bin} leaf    demo [--attestation <eat.cbor>]  (delegation leaf; no agent identity)");
 }
 
 fn cli_name() -> String {
@@ -99,6 +102,111 @@ fn cli_name() -> String {
         .and_then(|arg| Path::new(&arg).file_stem().map(|stem| stem.to_owned()))
         .and_then(|stem| stem.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "runcard".to_string())
+}
+
+/// `leaf` — emit a delegation leaf that binds a human's authorization to an
+/// attested code measurement, issuing no agent identity. This is the runnable
+/// form of "agents own nothing": the actor is `(human principal x code Value X)`.
+fn cmd_leaf(args: &[String]) -> anyhow::Result<()> {
+    match args.first().map(|s| s.as_str()) {
+        Some("demo") => cmd_leaf_demo(&args[1..]),
+        _ => {
+            eprintln!("Usage: {} leaf demo [--attestation <eat.cbor>]", cli_name());
+            eprintln!();
+            eprintln!("Emit a delegation leaf: a human's scoped authorization bound to an");
+            eprintln!("attested code measurement (Value X). No agent identity is created.");
+            Ok(())
+        }
+    }
+}
+
+fn cmd_leaf_demo(args: &[String]) -> anyhow::Result<()> {
+    use crate::eat::{EatToken, EAT_VERSION};
+    use crate::leaf::{random_principal, DelegationLeaf};
+
+    let att_path = args
+        .iter()
+        .position(|a| a == "--attestation")
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+        .unwrap_or_else(|| "testdata/chain/tdx_stage1.cbor".to_string());
+
+    // A real attested code measurement: prefer a parsed EAT fixture; fall back
+    // to the source-tree Value X so the demo always runs.
+    let (code_value_x, attestation_hash, platform, eat_opt): (
+        [u8; 48],
+        [u8; 32],
+        String,
+        Option<EatToken>,
+    ) = match std::fs::read(&att_path) {
+        Ok(bytes) => match EatToken::from_cbor(&bytes) {
+            Ok(eat) => {
+                let h: [u8; 32] = Sha256::digest(eat.to_cbor()?).into();
+                let plat = eat
+                    .platform_enum()
+                    .map(|p| format!("{p:?}"))
+                    .unwrap_or_else(|| "unknown".into());
+                (eat.value_x, h, plat, Some(eat))
+            }
+            Err(e) => {
+                eprintln!("[leaf/demo] {att_path}: not a v{EAT_VERSION} EAT ({e})");
+                eprintln!("[leaf/demo] using source-tree Value X + raw fixture bytes as evidence");
+                let vx = compute_tree_hash(Path::new("."))?;
+                (vx, Sha256::digest(&bytes).into(), "fixture-bytes".into(), None)
+            }
+        },
+        Err(_) => {
+            eprintln!("[leaf/demo] no attestation at {att_path}; using source-tree Value X (no live quote)");
+            let vx = compute_tree_hash(Path::new("."))?;
+            (vx, [0u8; 32], "none".into(), None)
+        }
+    };
+
+    // The human. An ephemeral Ed25519 principal stands in for the expert.
+    let signer = random_principal();
+    let principal = signer.verifying_key().to_bytes();
+
+    // The action this leaf accounts for (Cameo: "this output came from this code").
+    let action = b"answer: how do I write a zero-copy parser in Rust?";
+    let action_hash: [u8; 32] = Sha256::digest(action).into();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let leaf = DelegationLeaf::issue(
+        &signer,
+        "answer:rust",
+        now + 3600,
+        code_value_x,
+        attestation_hash,
+        action_hash,
+    );
+
+    // Verify the way a relying party would.
+    leaf.verify(now)?;
+    if let Some(eat) = &eat_opt {
+        leaf.verify_against_attestation(eat)?;
+    }
+
+    println!("delegation leaf  {}", hex::encode(leaf.leaf_id()));
+    println!("  human (principal)    {}", hex::encode(principal));
+    println!("  scope                {}", leaf.delegation.scope);
+    println!("  not_after            {}", leaf.delegation.not_after);
+    println!("  code (Value X)       {}", hex::encode(code_value_x));
+    println!("  attested on          {platform}");
+    println!("  attestation_hash     {}", hex::encode(attestation_hash));
+    println!("  action_hash          {}", hex::encode(action_hash));
+    println!("  delegation signature ok (Ed25519, signed by the human)");
+    if eat_opt.is_some() {
+        println!("  attestation binding  ok (Value X matches the quote, hash matches)");
+    }
+    println!();
+    println!("  actor  = (human principal) x (code Value X)");
+    println!("  agents registered:   0");
+    println!("  agent keypairs:      0");
+    println!("  there was never an agent to register.");
+    Ok(())
 }
 
 /// TCP-to-vsock proxy. Runs on the parent instance.
