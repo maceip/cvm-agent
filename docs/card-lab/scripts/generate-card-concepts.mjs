@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import QRCode from "qrcode";
 
 const labRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(labRoot, "cards");
@@ -175,16 +176,41 @@ function metric(x, y, label, value, sub, opts = {}) {
 </g>`;
 }
 
-function miniQr(x, y, size = 116, fg = "#111", bg = "#fff") {
-  const cells = [
-    [1, 1, 5, 5], [2, 2, 3, 3], [10, 1, 5, 5], [11, 2, 3, 3], [1, 10, 5, 5], [2, 11, 3, 3],
-    [7, 7, 1, 3], [9, 7, 2, 1], [6, 11, 3, 1], [10, 11, 1, 3], [13, 8, 2, 1],
-    [7, 14, 2, 1], [14, 13, 1, 2], [8, 3, 1, 1], [3, 8, 2, 1], [12, 15, 2, 1],
-  ];
-  const unit = size / 17;
+function round(value) {
+  return Number(value.toFixed(3));
+}
+
+// Renders a real, scannable QR code for `data` inside a `size`x`size` box.
+// The box itself is the light quiet zone; the receipt/verify URL is the trust
+// anchor, so the card stays honest: scanning lands on the proof, not the pixels.
+function miniQr(x, y, size = 116, fg = "#111", bg = "#fff", data = "https://runcard.dev") {
+  const qr = QRCode.create(String(data), { errorCorrectionLevel: "M" });
+  const count = qr.modules.size;
+  const cells = qr.modules.data;
+  const pad = round(size * 0.1);
+  const unit = (size - pad * 2) / count;
+  const modules = [];
+  for (let row = 0; row < count; row++) {
+    let run = 0;
+    for (let col = 0; col <= count; col++) {
+      const dark = col < count && cells[row * count + col] === 1;
+      if (dark) {
+        run += 1;
+        continue;
+      }
+      if (run > 0) {
+        const rx = pad + (col - run) * unit;
+        const ry = pad + row * unit;
+        modules.push(
+          `<rect x="${round(rx)}" y="${round(ry)}" width="${round(run * unit)}" height="${round(unit)}" fill="${fg}"/>`,
+        );
+        run = 0;
+      }
+    }
+  }
   return `<g transform="translate(${x} ${y})">
   ${rect(0, 0, size, size, { fill: bg, stroke: fg, sw: 2, rx: 8 })}
-  ${cells.map(([cx, cy, cw, ch]) => rect(cx * unit, cy * unit, cw * unit, ch * unit, { fill: fg })).join("\n  ")}
+  ${modules.join("\n  ")}
 </g>`;
 }
 
@@ -240,7 +266,7 @@ ${assuranceBar(230, 490, 490, [
   { value: 5, color: "#ff5a5f" },
 ])}
 ${text(738, 506, "76% attested | 19% managed | 5% participant", { size: 18, weight: 700, fill: "#4e4b42" })}
-${miniQr(947, 378, 112, "#14130f", "#fffdf6")}
+${miniQr(947, 378, 112, "#14130f", "#fffdf6", "https://runcard.dev/e/hacktx/neon-byte-club")}
 ${text(1003, 523, "scan receipt", { size: 17, weight: 850, fill: "#14130f", family: mono, anchor: "middle" })}
 ${line(64, 562, 1136, 562, { stroke: "#14130f", sw: 2 })}
 ${text(78, 580, "event log root 9b7c...20af | latest quote 43s ago | prize policy min-tokens", { size: 16, weight: 650, fill: "#4e4b42", family: mono })}
@@ -275,7 +301,7 @@ ${text(734, 181, "684k tokens", { size: 45, weight: 950, fill: "#fbf1d6" })}
 ${rect(706, 448, 366, 92, { fill: "#23211c", stroke: "#fbf1d6", sw: 2, rx: 16 })}
 ${text(734, 485, "assurance: attested 61%", { size: 19, weight: 850, fill: "#fbf1d6", family: mono })}
 ${text(734, 518, "managed keys 39%", { size: 19, weight: 750, fill: "#bfb59a", family: mono })}
-${miniQr(1012, 466, 74, "#191714", "#fbf1d6")}
+${miniQr(1012, 466, 74, "#191714", "#fbf1d6", "https://runcard.dev/e/agent-jam/shipshape")}
 ${text(76, 576, "proof over claims | latest event: claude-code call captured by gateway 18s ago", { size: 18, weight: 700, fill: "#bfb59a", family: mono })}
 `;
   return svgShell("Team Relay Runcard", "A team card showing multiple participants flowing into one verifiable run card.", body);
@@ -314,7 +340,7 @@ ${rect(726, 452, 172, 42, { fill: "#ff7b54", rx: 12 })}
 ${text(310, 480, "gateway", { size: 18, weight: 900, fill: "#101010", family: mono })}
 ${text(594, 480, "local", { size: 18, weight: 900, fill: "#101010", family: mono })}
 ${text(750, 480, "tee", { size: 18, weight: 900, fill: "#101010", family: mono })}
-${miniQr(957, 448, 86, "#101010", "#fff")}
+${miniQr(957, 448, 86, "#101010", "#fff", "https://runcard.dev/e/min-tokens/careful-compiler")}
 ${text(84, 548, "enforcement: routed + managed keys | evidence window: May 19 09:00-17:00 UTC", { size: 18, weight: 700, fill: "#333", family: mono })}
 `;
   return svgShell("Team Scoreline Runcard", "A competition-oriented team card for token-limited hackathon formats.", body);
@@ -343,7 +369,7 @@ ${stackedModelBars(752, 304, [
   { label: "claude", value: 0.31, caption: "31%", color: "#bae6fd", track: "#233123", fg: "#f8fafc" },
   { label: "local", value: 0.14, caption: "14%", color: "#fef08a", track: "#233123", fg: "#f8fafc" },
 ], 178)}
-${miniQr(944, 380, 92, "#0d100d", "#d9f99d")}
+${miniQr(944, 380, 92, "#0d100d", "#d9f99d", "https://runcard.dev/e/sf-agent-jam/vector-lab")}
 ${text(74, 548, "TRUST OVER TOKENS | receipt root 9d14...ee31 | card policy public aggregate / private prompts", { size: 19, weight: 800, fill: "#9abf9a", family: mono })}
 `;
   return svgShell("Team Terminal Runcard", "A terminal-native team card for README and CI surfaces.", body);
@@ -377,7 +403,7 @@ ${text(418, 472, "active path: tee gateway on macOS", { size: 22, weight: 850, f
 ${rect(830, 430, 178, 72, { fill: "#fffdf5", stroke: "#11211d", sw: 2, rx: 12 })}
 ${text(854, 461, "assurance", { size: 17, weight: 850, fill: "#116b63", family: mono })}
 ${text(854, 489, "attested", { size: 25, weight: 950, fill: "#11211d", family: mono })}
-${miniQr(1006, 88, 104, "#11211d", "#fffdf5")}
+${miniQr(1006, 88, 104, "#11211d", "#fffdf5", "https://runcard.dev/@mina.builds")}
 ${text(1008, 226, "verify", { size: 17, weight: 850, fill: "#11211d", family: mono })}
 ${line(388, 532, 1110, 532, { stroke: "#11211d", sw: 2 })}
 ${text(394, 560, "device key 5f1c...92a0 | latest event: local proxy usage receipt 12s ago", { size: 18, weight: 700, fill: "#515b55", family: mono })}
@@ -403,7 +429,7 @@ ${text(392, 486, "11s ago", { size: 30, weight: 950, fill: "#f7fff4", family: mo
 ${rect(656, 416, 258, 92, { fill: "#0d3932", stroke: "#23685c", sw: 2, rx: 12 })}
 ${text(680, 453, "today", { size: 18, weight: 850, fill: "#59ffd6", family: mono })}
 ${text(680, 486, "92 calls", { size: 30, weight: 950, fill: "#f7fff4", family: mono })}
-${miniQr(960, 398, 112, "#06201c", "#d8fff6")}
+${miniQr(960, 398, 112, "#06201c", "#d8fff6", "https://runcard.dev/@nova/signal")}
 ${text(80, 560, "capture health: browser connected | gateway ok | workbench idle | 0 actionable failures", { size: 19, weight: 800, fill: "#a8d9ce", family: mono })}
 `;
   return svgShell("Individual Signal Runcard", "A live individual card showing current capture path and latest event.", body);
@@ -444,7 +470,7 @@ ${text(720, 198, "visibility: public aggregate", { size: 21, weight: 750, fill: 
 ${rect(688, 282, 338, 132, { fill: "#fff7ed", stroke: "#151515", sw: 2, rx: 16 })}
 ${text(718, 326, "assurance", { size: 20, weight: 850, fill: "#9a3412", family: mono })}
 ${text(718, 374, "managed + attested", { size: 29, weight: 950, fill: "#151515", family: mono })}
-${miniQr(895, 444, 94, "#151515", "#fff")}
+${miniQr(895, 444, 94, "#151515", "#fff", "https://runcard.dev/@max-context")}
 ${pill(688, 462, 174, "daily card", { fill: "#151515", color: "#fff", size: 17 })}
 ${text(80, 552, "receipt API: /@max-context/card.json | token source: provider + local estimates", { size: 18, weight: 750, fill: "#4a4a4a", family: mono })}
 `;
@@ -458,7 +484,7 @@ ${rect(64, 58, 1072, 514, { fill: "#111111", stroke: "#111111", sw: 2, rx: 24 })
 ${rect(92, 86, 284, 458, { fill: "#ffd84d", rx: 16 })}
 ${text(234, 238, "RC", { size: 118, weight: 950, fill: "#111111", family: mono, anchor: "middle" })}
 ${text(234, 302, "individual", { size: 28, weight: 950, fill: "#111111", family: mono, anchor: "middle" })}
-${miniQr(180, 350, 108, "#111111", "#ffd84d")}
+${miniQr(180, 350, 108, "#111111", "#ffd84d", "https://runcard.dev/@arivale")}
 ${text(420, 137, "POCKET RUNCARD", { size: 27, weight: 950, fill: "#80ffea", family: mono })}
 ${text(418, 230, "Ari Vale", { size: 80, weight: 950, fill: "#fffaf0" })}
 ${text(424, 280, "proof over claims", { size: 31, weight: 750, fill: "#ffd84d" })}

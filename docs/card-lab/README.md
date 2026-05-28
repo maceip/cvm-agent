@@ -89,8 +89,23 @@ That is not the trust anchor by itself; the JSON/proof/receipt endpoints remain
 canonical. The embedded metadata makes screenshots, caches, and copied SVGs
 self-describing enough for tools and curious humans to find the proof trail.
 
+## QR codes
+
+Each card carries a real, scannable QR encoding its `receipt_url` (rendered by
+the `qrcode` package). The QR is not the trust anchor — scanning it lands on the
+canonical receipt/proof endpoint, where verification actually happens.
+
 Regenerate the assets with:
 
 ```bash
-node docs/card-lab/scripts/generate-card-concepts.mjs
+cd docs/card-lab
+npm install
+npm run build
+```
+
+Verify that every rendered QR decodes back to its receipt URL (rasterizes each
+card and decodes it):
+
+```bash
+npm run verify
 ```

@@ -1,0 +1,18 @@
+{
+  "name": "runcard-card-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Design sandbox renderer for Runcard proof cards.",
+  "scripts": {
+    "build": "node scripts/generate-card-concepts.mjs",
+    "verify": "node scripts/verify-qr.mjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "jsqr": "^1.4.0",
+    "sharp": "^0.34.5"
+  }
+}
