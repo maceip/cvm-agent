@@ -8,12 +8,12 @@ mcp server, deploy job, or service real power, it can ask one question:
 
 > is this live thing really the reviewed source it claims to be?
 
-no proof, no privilege. **runcard** is the developer-facing product surface.
+no proof, no privilege. `cvm` is the developer-facing product surface.
 
 ## verify before release
 
 ```ts
-const verdict = await runcard.verify("https://agent.example.com", {
+const verdict = await cvm.verify("https://agent.example.com", {
   source: "github.com/acme/support-flow",
   policy: "reviewed-main-only",
 });
