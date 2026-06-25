@@ -35,6 +35,11 @@ sev-snp = ["dep:p384"]
 tdx = []
 
 [dependencies]
+# The stack base: cvm-agent gates privilege on receipts in the unified-quote
+# format and verifies them with the unified-quote verifier. Real dependency on
+# the base layer (see examples/mesh.rs) — this is the mesh.
+unified-quote = { git = "https://github.com/maceip/unified-quote", package = "unified-quote" }
+
 # Core
 sha2 = "0.10"
 ed25519-dalek = { version = "2", features = ["rand_core"] }

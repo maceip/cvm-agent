@@ -1901,6 +1901,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-rustls",
+ "unified-quote",
  "x509-cert",
 ]
 
@@ -2576,6 +2577,44 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unified-quote"
+version = "0.1.0"
+source = "git+https://github.com/maceip/unified-quote#9d812d3145e9fb9ef6c3978fb6eef4bd8808e6d7"
+dependencies = [
+ "aes",
+ "anyhow",
+ "aws-nitro-enclaves-nsm-api",
+ "base64",
+ "cbc",
+ "ciborium",
+ "der",
+ "ecdsa",
+ "ed25519-dalek",
+ "hex",
+ "instant-acme",
+ "libc",
+ "nix 0.29.0",
+ "p256",
+ "p384",
+ "rand 0.8.5",
+ "rcgen 0.13.2",
+ "reqwest",
+ "rsa",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+ "serde_json",
+ "sha2",
+ "spki",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "x509-cert",
+]
 
 [[package]]
 name = "untrusted"

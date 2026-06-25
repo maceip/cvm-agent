@@ -34,6 +34,36 @@ if (verdict.ok) await secrets.release("PROD_SUPPORT_TOKEN");
 - quote format — [unified-quote](https://github.com/maceip/unified-quote)
 - in-tee runtime — [attested-workload](https://github.com/maceip/attested-workload)
 
+each lower layer stands on its own; cvm-agent pulls them in to show the mesh.
+
+## the mesh
+
+cvm-agent depends on the base layer for real — `unified-quote` is a cargo
+dependency, not a vendored copy:
+
+```toml
+unified-quote = { git = "https://github.com/maceip/unified-quote", package = "unified-quote" }
+```
+
+`examples/mesh.rs` uses that crate's verifier to check a real, hardware-rooted
+receipt — the same format attestation-service issues and attested-workload
+serves over attested tls:
+
+```
+$ cargo run --example mesh
+cvm-agent → unified-quote mesh check
+  receipt : examples/fixtures/tdx_stage1.cbor
+  format  : eat v2 · 2 stage(s)
+  [stage1 (runtime)] tdx → VERIFIED against pinned tdx vendor root
+  [stage0 (build)]   tdx → VERIFIED against pinned tdx vendor root
+  value_x stable across chain: true
+  verdict : VERIFIED — privilege may be released
+```
+
+the receipts are real captured quotes (tdx build→runtime chain, aws nitro),
+verified offline against pinned vendor roots. the verifier is the base layer's
+code — no fork, no copy.
+
 pages: https://maceip.github.io/cvm-agent/
 
 <!-- agentic-canon -->
