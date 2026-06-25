@@ -1,10 +1,10 @@
-# Runcard
+# cvm-agent
 
 > **Part of a layered confidential-compute platform — run agents inside cloud TEEs (AWS Nitro · AMD SEV-SNP · Intel TDX).**  
 > `agent platform` **cvm-agent** (this repo) · `attestation service` [attestation-service](https://github.com/maceip/attestation-service) · `quote format` [unified-quote](https://github.com/maceip/unified-quote) · `in-TEE runtime` [attested-workload](https://github.com/maceip/attested-workload)
 
 
-Runcard is proof before privilege for agentic software.
+**Runcard** is the agent-facing product surface of cvm-agent: proof before privilege for agentic software.
 
 Before an app gives an agent, MCP server, package, deploy job, or service real
 power, it should be able to ask one practical question:
