@@ -11,15 +11,15 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use ed25519_dalek::SigningKey;
 use rand::RngCore;
 use reqwest::header::{HeaderName, HeaderValue};
-use runcards::http_service::{
+use cvm_agent::http_service::{
     serve_hyper, write_json, write_rate_limited, write_response, write_response_with_headers,
     BufferedResponse as HttpConn, CorsHeaders, HandlerFuture, HttpRequest, HttpServerConfig,
 };
-use runcards::llm_attested::{
+use cvm_agent::llm_attested::{
     build_capture_ra_claim, insert_capture_ra_evidence, random_id, sha256_prefixed, CaptureRaClaim,
     ContestEvent, ContestManifest, EventActor, TrustPolicy,
 };
-use runcards::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
+use cvm_agent::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
@@ -42,12 +42,12 @@ struct Config {
     gateway_id: String,
     competition_url: String,
     gateway_manifest_url: String,
-    runcard_receipt_url: String,
-    runcard_receipt_body: Option<Vec<u8>>,
+    cvm_receipt_url: String,
+    cvm_receipt_body: Option<Vec<u8>>,
     registry_url: String,
     accepted_tee_platforms: Vec<String>,
     value_x: String,
-    runcard_receipt_hash: String,
+    cvm_receipt_hash: String,
     policy_hash: String,
     scoring_rule_hash: String,
     enforcement_mode: String,
@@ -111,7 +111,7 @@ async fn main() -> Result<()> {
         cfg.gateway_id.clone(),
         cfg.competition_url.clone(),
         cfg.gateway_manifest_url.clone(),
-        cfg.runcard_receipt_hash.clone(),
+        cfg.cvm_receipt_hash.clone(),
         cfg.value_x.clone(),
         cfg.policy_hash.clone(),
         cfg.scoring_rule_hash.clone(),
@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
         vec![cfg.capture_method.clone()],
         TrustPolicy::self_hosted(
             cfg.accepted_tee_platforms.clone(),
-            cfg.runcard_receipt_url.clone(),
+            cfg.cvm_receipt_url.clone(),
             cfg.registry_url.clone(),
         ),
         &signing_key.verifying_key(),
@@ -128,9 +128,9 @@ async fn main() -> Result<()> {
     );
     let manifest_hash = manifest.hash().context("hash manifest")?;
     let ra_claim = if cfg.assurance == "attested" {
-        let receipt = cfg.runcard_receipt_body.as_deref().ok_or_else(|| {
+        let receipt = cfg.cvm_receipt_body.as_deref().ok_or_else(|| {
             anyhow!(
-                "attested assurance requires --runcard-receipt so the gateway can prove its capture path"
+                "attested assurance requires --cvm-receipt so the gateway can prove its capture path"
             )
         })?;
         Some(
@@ -181,7 +181,7 @@ async fn main() -> Result<()> {
     if let Some(claim) = &state.ra_claim {
         eprintln!(
             "[llm-gateway] remote attestation {} {} {}",
-            claim.platform, claim.value_x, claim.runcard_receipt_hash
+            claim.platform, claim.value_x, claim.cvm_receipt_hash
         );
     }
     eprintln!("[llm-gateway] event log {}", cfg.event_log_path.display());
@@ -257,12 +257,12 @@ async fn handle_connection(
         ("GET", "/.well-known/llm-attested/manifest.json") => {
             write_json(stream, 200, &state.manifest).await
         }
-        ("GET", "/.well-known/runcard/receipt") => {
-            let Some(receipt) = &state.cfg.runcard_receipt_body else {
+        ("GET", "/.well-known/cvm/receipt") => {
+            let Some(receipt) = &state.cfg.cvm_receipt_body else {
                 return write_json(
                     stream,
                     404,
-                    &serde_json::json!({"error": "runcard receipt not configured"}),
+                    &serde_json::json!({"error": "cvm receipt not configured"}),
                 )
                 .await;
             };
@@ -624,17 +624,17 @@ fn parse_args() -> Result<Config> {
     let mut gateway_id = random_id("gw");
     let mut competition_url: Option<String> = None;
     let mut gateway_manifest_url: Option<String> = None;
-    let mut runcard_receipt_url: Option<String> = None;
-    let mut runcard_receipt_body: Option<Vec<u8>> = None;
+    let mut cvm_receipt_url: Option<String> = None;
+    let mut cvm_receipt_body: Option<Vec<u8>> = None;
     let mut registry_url: Option<String> = None;
     let mut accepted_tee_platforms = vec![
         "tdx".to_string(),
         "sev-snp".to_string(),
         "nitro".to_string(),
     ];
-    let mut value_x = std::env::var("BOUNTYNET_VALUE_X").unwrap_or_else(|_| "unknown".to_string());
-    let mut runcard_receipt_hash =
-        std::env::var("RUNCARD_RECEIPT_HASH").unwrap_or_else(|_| ZERO_HASH.to_string());
+    let mut value_x = std::env::var("CVM_VALUE_X").unwrap_or_else(|_| "unknown".to_string());
+    let mut cvm_receipt_hash =
+        std::env::var("CVM_RECEIPT_HASH").unwrap_or_else(|_| ZERO_HASH.to_string());
     let mut policy_hash = sha256_prefixed(b"allow-all-dev");
     let mut scoring_rule_hash = sha256_prefixed(b"min-total-tokens");
     let mut enforcement_mode = "routed".to_string();
@@ -702,9 +702,9 @@ fn parse_args() -> Result<Config> {
                 i += 1;
                 gateway_manifest_url = Some(arg_value(&args, i, "--gateway-manifest-url")?);
             }
-            "--runcard-receipt-url" => {
+            "--cvm-receipt-url" => {
                 i += 1;
-                runcard_receipt_url = Some(arg_value(&args, i, "--runcard-receipt-url")?);
+                cvm_receipt_url = Some(arg_value(&args, i, "--cvm-receipt-url")?);
             }
             "--registry-url" => {
                 i += 1;
@@ -723,17 +723,17 @@ fn parse_args() -> Result<Config> {
                 i += 1;
                 value_x = arg_value(&args, i, "--value-x")?;
             }
-            "--runcard-receipt-hash" => {
+            "--cvm-receipt-hash" => {
                 i += 1;
-                runcard_receipt_hash = arg_value(&args, i, "--runcard-receipt-hash")?;
+                cvm_receipt_hash = arg_value(&args, i, "--cvm-receipt-hash")?;
             }
-            "--runcard-receipt" => {
+            "--cvm-receipt" => {
                 i += 1;
-                let path = PathBuf::from(arg_value(&args, i, "--runcard-receipt")?);
+                let path = PathBuf::from(arg_value(&args, i, "--cvm-receipt")?);
                 let bytes = std::fs::read(&path)
                     .with_context(|| format!("read receipt {}", path.display()))?;
-                runcard_receipt_hash = sha256_prefixed(&bytes);
-                runcard_receipt_body = Some(bytes);
+                cvm_receipt_hash = sha256_prefixed(&bytes);
+                cvm_receipt_body = Some(bytes);
             }
             "--policy" => {
                 i += 1;
@@ -819,10 +819,10 @@ fn parse_args() -> Result<Config> {
         competition_url.unwrap_or_else(|| "http://localhost:8080/e/local".to_string());
     let gateway_manifest_url = gateway_manifest_url
         .unwrap_or_else(|| format!("{gateway_base_url}/.well-known/llm-attested/manifest.cbor"));
-    let runcard_receipt_url = runcard_receipt_url
-        .unwrap_or_else(|| format!("{gateway_base_url}/.well-known/runcard/receipt"));
+    let cvm_receipt_url = cvm_receipt_url
+        .unwrap_or_else(|| format!("{gateway_base_url}/.well-known/cvm/receipt"));
     let registry_url = registry_url
-        .unwrap_or_else(|| "http://localhost:8080/.well-known/runcard/registry.json".to_string());
+        .unwrap_or_else(|| "http://localhost:8080/.well-known/cvm/registry.json".to_string());
 
     Ok(Config {
         listen,
@@ -835,12 +835,12 @@ fn parse_args() -> Result<Config> {
         gateway_id,
         competition_url,
         gateway_manifest_url,
-        runcard_receipt_url,
-        runcard_receipt_body,
+        cvm_receipt_url,
+        cvm_receipt_body,
         registry_url,
         accepted_tee_platforms,
         value_x,
-        runcard_receipt_hash,
+        cvm_receipt_hash,
         policy_hash,
         scoring_rule_hash,
         enforcement_mode,
@@ -917,8 +917,8 @@ fn print_usage() {
     eprintln!(
         "  --gateway-manifest-url https://gateway.example/.well-known/llm-attested/manifest.cbor"
     );
-    eprintln!("  --runcard-receipt-url https://gateway.example/.well-known/runcard/receipt");
-    eprintln!("  --registry-url https://events.example/.well-known/runcard/registry.json");
+    eprintln!("  --cvm-receipt-url https://gateway.example/.well-known/cvm/receipt");
+    eprintln!("  --registry-url https://events.example/.well-known/cvm/registry.json");
     eprintln!("  --accepted-tee-platforms tdx,sev-snp,nitro");
     eprintln!("  --start-url https://events.example/e/<event>/join");
     eprintln!("  --event-sink-url https://events.example/e/<event>/events");
@@ -933,7 +933,7 @@ fn print_usage() {
     eprintln!("  --team-requests-per-minute 120");
     eprintln!("  --policy ./policy.json");
     eprintln!("  --scoring ./scoring.json");
-    eprintln!("  --runcard-receipt ./stage1-attestation.cbor");
+    eprintln!("  --cvm-receipt ./stage1-attestation.cbor");
 }
 
 #[cfg(test)]

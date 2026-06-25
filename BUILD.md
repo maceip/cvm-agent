@@ -10,12 +10,12 @@ How to verify that a running enclave matches source code.
 ## Build Steps
 
 ```bash
-# 1. Build the bountynet binary
+# 1. Build the cvm binary
 cd .
 cargo build --release
 
 # 2. Prepare build context
-cp target/release/bountynet /tmp/bountynet-bin
+cp target/release/cvm /tmp/cvm-bin
 cp -r src /tmp/src
 
 # 3. Build Docker image
@@ -44,13 +44,13 @@ A verifier builds the same EIF from source and compares PCR0:
 
 ```bash
 # Verifier builds from the same git commit
-git clone https://github.com/maceip/bountynet-genesis.git
-cd runcards
+git clone https://github.com/maceip/cvm-genesis.git
+cd cvms
 cargo build --release
-cp target/release/bountynet /tmp/bountynet-bin
+cp target/release/cvm /tmp/cvm-bin
 cp -r src /tmp/src
 cd /tmp
-docker build -t verify -f runcards/Dockerfile.enclave .
+docker build -t verify -f cvms/Dockerfile.enclave .
 nitro-cli build-enclave --docker-uri verify:latest --output-file verify.eif
 
 # Compare PCR0 — must match the running enclave
@@ -58,7 +58,7 @@ nitro-cli build-enclave --docker-uri verify:latest --output-file verify.eif
 
 Then verify the running enclave:
 ```bash
-bountynet verify --remote https://<domain>
+cvm verify --remote https://<domain>
 ```
 
 The TEE signature chain proves the attestation came from real Nitro hardware.
@@ -71,7 +71,7 @@ Value X proves the source files inside the enclave match what you hashed.
 |-----|----------|
 | PCR0 | Enclave image (hash of EIF — kernel + ramdisk + application) |
 | PCR1 | Linux kernel and boot ramfs |
-| PCR2 | Application (Docker layer — bountynet binary + source) |
+| PCR2 | Application (Docker layer — cvm binary + source) |
 
 ## Running
 
@@ -81,10 +81,10 @@ nitro-cli run-enclave --eif-path nodea.eif --memory 3500 --cpu-count 2
 
 # Start proxy with ACME cert provisioning
 CID=$(nitro-cli describe-enclaves | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['EnclaveCID'])")
-bountynet proxy --cid $CID --port 443 --acme
+cvm proxy --cid $CID --port 443 --acme
 
 # Verify from anywhere
-bountynet verify --remote https://<value_x_prefix>.aeon.site
+cvm verify --remote https://<value_x_prefix>.aeon.site
 ```
 
 ## Reproducibility Guarantee

@@ -90,7 +90,7 @@ pub enum TrustedIdentity {
     /// Sigstore keyless signer, pinned by Fulcio cert subject.
     /// Matches any workflow identity matching (issuer, subject_pattern).
     /// `subject_pattern` is a glob — e.g.,
-    ///   `https://github.com/maceip/runcards/.github/workflows/registry-sign.yml@refs/heads/main`
+    ///   `https://github.com/maceip/cvm-agent/.github/workflows/registry-sign.yml@refs/heads/main`
     /// or a looser match for downstream users.
     SigstoreKeyless {
         issuer: String,
@@ -127,13 +127,13 @@ impl TrustRoot {
     /// The project's own default trust root: our GitHub workflow signing
     /// via Sigstore keyless. Downstream users should NOT use this — they
     /// should build their own `TrustRoot` pointing at their own signers.
-    /// This exists so `runcard check` of our own runner works out of
+    /// This exists so `cvm check` of our own runner works out of
     /// the box without a config file.
-    pub fn runcards_default() -> Self {
+    pub fn cvms_default() -> Self {
         Self::empty().with(TrustedIdentity::SigstoreKeyless {
             issuer: "https://token.actions.githubusercontent.com".to_string(),
             subject_pattern:
-                "https://github.com/maceip/runcards/.github/workflows/registry-sign.yml@refs/heads/main"
+                "https://github.com/maceip/cvm-agent/.github/workflows/registry-sign.yml@refs/heads/main"
                     .to_string(),
         })
     }
@@ -176,9 +176,9 @@ impl Registry {
 
     /// Default load: look for the project's registry directory and use
     /// the project's default `TrustRoot`. This is the path
-    /// `runcard check` takes when no config is provided.
+    /// `cvm check` takes when no config is provided.
     pub fn load_default() -> anyhow::Result<Self> {
-        let trust_root = TrustRoot::runcards_default();
+        let trust_root = TrustRoot::cvms_default();
         let mut merged = Self {
             entries: HashMap::new(),
             trust_root: trust_root.clone(),
@@ -335,7 +335,7 @@ impl Registry {
     }
 }
 
-/// Human-readable summary of a lookup result. Used by `bountynet check`.
+/// Human-readable summary of a lookup result. Used by `cvm check`.
 pub fn describe(lookup: &Lookup) -> String {
     match lookup {
         Lookup::Found { entry, signature } => {

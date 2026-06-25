@@ -28,8 +28,8 @@
 //! What the live hardware test adds on top is exactly and only the
 //! signature verification — everything else is exercised here.
 
-use runcards::eat::{BuildComponents, EatToken};
-use runcards::quote::Platform;
+use cvm_agent::eat::{BuildComponents, EatToken};
+use cvm_agent::quote::Platform;
 use sha2::{Digest, Sha256};
 
 /// SNP-shaped quote: 1152 bytes, `report_data` slot at offset 0x50.

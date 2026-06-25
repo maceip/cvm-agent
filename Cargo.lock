@@ -372,6 +372,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "cvm-agent"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "anyhow",
+ "aws-nitro-enclaves-nsm-api",
+ "base64",
+ "bytes",
+ "cbc",
+ "ciborium",
+ "der",
+ "ecdsa",
+ "ed25519-dalek",
+ "governor",
+ "hex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "instant-acme",
+ "libc",
+ "nix 0.29.0",
+ "p256",
+ "p384",
+ "qrcodegen",
+ "rand 0.8.5",
+ "rcgen 0.13.2",
+ "reqwest",
+ "rsa",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+ "serde_json",
+ "sha2",
+ "spki",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "unified-quote",
+ "x509-cert",
+]
+
+[[package]]
 name = "dashmap"
 version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1858,51 +1903,6 @@ dependencies = [
  "spki",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "runcards"
-version = "0.1.0"
-dependencies = [
- "aes",
- "anyhow",
- "aws-nitro-enclaves-nsm-api",
- "base64",
- "bytes",
- "cbc",
- "ciborium",
- "der",
- "ecdsa",
- "ed25519-dalek",
- "governor",
- "hex",
- "http-body-util",
- "hyper",
- "hyper-util",
- "instant-acme",
- "libc",
- "nix 0.29.0",
- "p256",
- "p384",
- "qrcodegen",
- "rand 0.8.5",
- "rcgen 0.13.2",
- "reqwest",
- "rsa",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_bytes",
- "serde_cbor",
- "serde_json",
- "sha2",
- "spki",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-rustls",
- "unified-quote",
- "x509-cert",
 ]
 
 [[package]]

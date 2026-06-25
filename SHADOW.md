@@ -1,6 +1,6 @@
 # Shadow Attestation
 
-A GitHub Action (`maceip/bountynet-shadow@v1`) that developers add to
+A GitHub Action (`maceip/cvm-shadow@v1`) that developers add to
 their normal workflow. The Action packages the checked-out workspace,
 binds it to GitHub's own OIDC/Sigstore SBOM or provenance attestation,
 and sends that build bundle to our shadow spawner. The spawner creates
@@ -14,7 +14,7 @@ This document is the design. Code lives elsewhere when it exists.
 
 ## Why this exists
 
-Shadow attestation is the feature that makes bountynet useful to people
+Shadow attestation is the feature that makes cvm useful to people
 who do not care about TEEs or code signing. Without it, the story is
 "we run our own stuff in a TEE, you'd have to do the same." With it, the
 story is "add one workflow step, get a hardware-rooted rebuild witness
@@ -32,7 +32,7 @@ The public v1 surface is a GitHub Action, not a raw anonymous tarball
 upload API:
 
 ```yaml
-- uses: maceip/bountynet-shadow@v1
+- uses: maceip/cvm-shadow@v1
   with:
     build: cargo build --release
     artifact: target/release/my-app
@@ -43,7 +43,7 @@ The Action hides the transport details:
 1. Checks the workspace already present in the user's workflow.
 2. Packages the workspace deterministically into a build bundle.
 3. Records GitHub context: repository, ref, SHA, workflow, run ID, job.
-4. Requests a GitHub OIDC token for audience `bountynet-shadow`.
+4. Requests a GitHub OIDC token for audience `cvm-shadow`.
 5. Produces or locates a GitHub-sourced SBOM/provenance attestation
    for the workflow artifact.
 6. Sends bundle + build command + artifact digest + OIDC token +
@@ -57,7 +57,7 @@ the abuse, identity, and billing rails have survived real use.
 The useful verifier claim is:
 
 > GitHub says workflow `repo@sha` produced artifact digest `A`.
-> BountyNet says an isolated TDX VM rebuilt the submitted source and
+> cvm-agent says an isolated TDX VM rebuilt the submitted source and
 > produced artifact digest `A'`, CT, and Value X. If `A == A'`, the
 > normal GitHub build and the TEE rebuild agree. If not, the shadow
 > attestation is still valid, but the build is not reproducible or the
@@ -82,11 +82,11 @@ The useful verifier claim is:
 ## The core threat
 
 Running arbitrary code inside a TEE that shares any trust relationship
-with the rest of bountynet is an existential risk to the project. If a
+with the rest of cvm is an existential risk to the project. If a
 shadow build escapes its sandbox into the host, the attacker gets:
 
-- The GitHub self-hosted runner token for `maceip/bountynet-genesis`
-- Root on the machine running `bountynet-live.service`
+- The GitHub self-hosted runner token for `maceip/cvm-genesis`
+- Root on the machine running `cvm-live.service`
 - The ability to issue fresh attestations from a compromised environment
   that still looks legitimate to any verifier that doesn't pin Value X
 - The ouroboros lineage — the attacker can now build malicious code and
@@ -100,8 +100,8 @@ shadow host and the current day's spend cap — and that's it.
 
 **v1 isolation posture (dedicated project + isolated VPC):** the
 shadow service lives in its own GCP project
-(`bountynet-shadow-20260415`), distinct from the project that hosts
-`bountynet-tdx-runner`. Same organization (`rex-org`, 176195637999),
+(`cvm-shadow-20260415`), distinct from the project that hosts
+`cvm-tdx-runner`. Same organization (`rex-org`, 176195637999),
 same billing account, but a project-level trust boundary between the
 two. Inside that project the shadow VMs run in their own dedicated
 VPC. A build escape must compromise the sandbox, escape the VM,
@@ -113,7 +113,7 @@ runner lives.
 
 Concretely for v1:
 
-- **Project:** `bountynet-shadow-20260415`. Created via Cloud
+- **Project:** `cvm-shadow-20260415`. Created via Cloud
   Resource Manager API on 2026-04-15. Compute and Confidential
   Computing APIs enabled. No service accounts, no IAM bindings
   granted yet beyond the default.
@@ -165,8 +165,8 @@ a legitimate build.
 
 **Mitigation:** v1 requests must carry GitHub workflow identity and a
 GitHub-sourced SBOM/provenance attestation. The shadow EAT explicitly
-tags shadow-origin builds (`eat_profile: "bountynet-shadow-v1"`),
-separate from `bountynet-v2`, and includes the requester identity:
+tags shadow-origin builds (`eat_profile: "cvm-shadow-v1"`),
+separate from `cvm-v2`, and includes the requester identity:
 repository, ref, SHA, workflow, run ID, and the GitHub attestation
 subject digest. Verifiers can choose to reject shadow-profile tokens.
 The registry never accepts a shadow-profile EAT as a trust root. Value
@@ -229,7 +229,7 @@ strict mode, and the server rejects any request > 10 MB outright.
 
 ### 7. Trust model undermining
 
-If every project on earth uses our shadow service, bountynet becomes
+If every project on earth uses our shadow service, cvm becomes
 the single vendor root for everyone's attestation chain. We are now
 the target of every advanced threat actor, and any compromise of the
 shadow host is a supply chain compromise for every downstream user.
@@ -300,7 +300,7 @@ and most data exfiltration vectors at once.
 Before a VM is spawned, the spawner verifies:
 
 - The OIDC JWT signature against GitHub's JWKS.
-- The token `aud` equals `bountynet-shadow`.
+- The token `aud` equals `cvm-shadow`.
 - The token carries the expected repository, ref, SHA, workflow, run ID,
   and job claims.
 - The submitted GitHub SBOM/provenance attestation is GitHub-issued.
@@ -373,7 +373,7 @@ through PoW + spend cap.
 
 For any request above the per-IP/ASN floor, the future design requires
 a tiny Lightning payment or a hash-locked on-chain deposit before the
-VM is spawned. This is the BountyNet-native answer: the shadow service
+VM is spawned. This is the cvm-agent-native answer: the shadow service
 becomes the first place where "stake something you already have" shows
 up as a product surface instead of a thesis.
 
@@ -384,7 +384,7 @@ us ship this week.
 
 ## Action and GitHub attestation identity
 
-The shim is a GitHub Action (`maceip/bountynet-shadow`, future repo) that
+The shim is a GitHub Action (`maceip/cvm-shadow`, future repo) that
 users drop into their workflow. It packages the workspace mid-job and
 POSTs it to the spawner. For the spawner to distinguish a real Action
 call from a handcrafted forgery, the request must carry a verifiable
@@ -392,7 +392,7 @@ identity rooted in GitHub and Sigstore, not in a secret we manage.
 
 **Chain of trust design:**
 
-1. **Publish-time:** every release of `bountynet-shadow` uses
+1. **Publish-time:** every release of `cvm-shadow` uses
    `actions/attest@v4` (or `actions/attest-sbom@v4`) in its release
    workflow to generate a Sigstore-backed SBOM attestation bound to the
    published artifact. Stored in Rekor, retrievable via the GitHub
@@ -403,7 +403,7 @@ identity rooted in GitHub and Sigstore, not in a secret we manage.
 3. **OIDC token:** the Action requests a GitHub Actions OIDC token via
    `ACTIONS_ID_TOKEN_REQUEST_URL`. The token carries
    `job_workflow_ref` which identifies *which Action release* is running
-   (e.g. `maceip/bountynet-shadow/.github/workflows/shadow.yml@refs/tags/v1.0.0`),
+   (e.g. `maceip/cvm-shadow/.github/workflows/shadow.yml@refs/tags/v1.0.0`),
    plus the caller's `repository`, `workflow`, `sha`, and `run_id`.
 4. **GitHub artifact attestation:** the workflow produces a GitHub
    SBOM/provenance attestation for the artifact being paired with the
@@ -442,7 +442,7 @@ match some attestation we've published. Start strict (tags only),
 relax if the UX hurts.
 
 **Dependencies for this to work:**
-- `maceip/bountynet-shadow` repo exists with a release workflow that
+- `maceip/cvm-shadow` repo exists with a release workflow that
   runs `actions/attest@v4`
 - First release cut, first attestation in Rekor
 - Spawner has a module that fetches GitHub Attestations API results
@@ -487,7 +487,7 @@ when reconstructing the spawner.
 1. **Subnet not created yet.** `shadow-vpc` exists, but the subnet does
    not. Any GCE boot path that passes `--subnet <shadow-subnet>` will
    fail until `gcloud compute networks subnets create ...` has run in
-   `bountynet-shadow-20260415`.
+   `cvm-shadow-20260415`.
 2. **Cloud-init user-data escaping.** The recovered `boot_build_vm`
    prototype used `--metadata user-data=<multiline cloud-config>`.
    Real GCE may require different quoting or `--metadata-from-file`
@@ -529,5 +529,5 @@ GitHub Pages demo.
 
 The thing to decide before any code is written: **which GCP project
 hosts the shadow service, and how is its billing scope separated from
-`bountynet-tdx-runner`?** That is the constitutional boundary.
+`cvm-tdx-runner`?** That is the constitutional boundary.
 Everything else is implementation.

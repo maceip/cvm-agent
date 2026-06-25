@@ -25,7 +25,7 @@ Options:
   --gateway-base-url URL     default: http://127.0.0.1:8088
   --state-dir PATH           default: .local/llm-site
   --no-demo                  do not create a demo event/team
-  --open                     open the demo runcard or home page in the OS browser
+  --open                     open the demo cvm or home page in the OS browser
   -h, --help                 show this help
 
 Examples:
@@ -121,11 +121,11 @@ if [[ "${MODE}" == "auto" ]]; then
   fi
 fi
 
-echo "[local-site] building Runcards binaries"
+echo "[local-site] building Cvms binaries"
 cargo build --manifest-path "${ROOT_DIR}/Cargo.toml" --bins
 
 EVENT_BIN="${ROOT_DIR}/target/debug/llm-event-service"
-RUNCARD_BIN="${ROOT_DIR}/target/debug/runcard"
+CVM_BIN="${ROOT_DIR}/target/debug/cvm"
 HEALTH_BASE_URL="$(health_base_url)"
 
 SERVICE_ARGS=(
@@ -179,7 +179,7 @@ start_tee() {
   privileged_env "PATH=${PATH}" \
     "RUSTUP_HOME=${RUSTUP_HOME:-${HOME}/.rustup}" \
     "CARGO_HOME=${CARGO_HOME:-${HOME}/.cargo}" \
-    "${RUNCARD_BIN}" build "${ROOT_DIR}" \
+    "${CVM_BIN}" build "${ROOT_DIR}" \
     --cmd "cargo build --bins" \
     --output "${STATE_DIR}/attest-out"
 
@@ -188,7 +188,7 @@ start_tee() {
   privileged_env "PATH=${PATH}" \
     "RUSTUP_HOME=${RUSTUP_HOME:-${HOME}/.rustup}" \
     "CARGO_HOME=${CARGO_HOME:-${HOME}/.cargo}" \
-    "${RUNCARD_BIN}" run "${ROOT_DIR}" \
+    "${CVM_BIN}" run "${ROOT_DIR}" \
     --attestation "${STATE_DIR}/attest-out/attestation.cbor" \
     --cmd "${workload}" &
   SERVICE_PID="$!"
@@ -215,7 +215,7 @@ curl -fsS "${HEALTH_BASE_URL}/healthz" >/dev/null
 HOME_URL="${PUBLIC_BASE_URL}"
 JOIN_URL=""
 DASHBOARD_URL=""
-RUNCARD_URL=""
+CVM_URL=""
 
 if [[ "${CREATE_DEMO}" == "1" ]]; then
   EVENT_JSON="$(curl -fsS -X POST "${HEALTH_BASE_URL}/events" \
@@ -227,7 +227,7 @@ if [[ "${CREATE_DEMO}" == "1" ]]; then
   TEAM_JSON="$(curl -fsS -X POST "${HEALTH_BASE_URL}/e/${EVENT_ID}/teams" \
     -H 'content-type: application/json' \
     --data '{"team_name":"Local Solo Team"}')"
-  RUNCARD_URL="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["runcard_url"])' "${TEAM_JSON}")"
+  CVM_URL="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["cvm_url"])' "${TEAM_JSON}")"
   printf '%s\n' "${TEAM_JSON}" > "${STATE_DIR}/team.json"
 fi
 
@@ -238,10 +238,10 @@ manifest = {
     "home_url": "${HOME_URL}",
     "health_url": "${HEALTH_BASE_URL}/healthz",
     "self_host_url": "${PUBLIC_BASE_URL}/.well-known/llm-attested/self-host.json",
-    "registry_url": "${PUBLIC_BASE_URL}/.well-known/runcard/registry.json",
+    "registry_url": "${PUBLIC_BASE_URL}/.well-known/cvm/registry.json",
     "join_url": "${JOIN_URL}",
     "dashboard_url": "${DASHBOARD_URL}",
-    "runcard_url": "${RUNCARD_URL}",
+    "cvm_url": "${CVM_URL}",
     "team_payload_path": "${STATE_DIR}/team.json" if "${CREATE_DEMO}" == "1" else None,
     "state_dir": "${STATE_DIR}",
 }
@@ -253,11 +253,11 @@ echo "[local-site] ready"
 echo "  mode:          ${MODE}"
 echo "  home:          ${HOME_URL}"
 echo "  self-host doc: ${PUBLIC_BASE_URL}/.well-known/llm-attested/self-host.json"
-echo "  registry:      ${PUBLIC_BASE_URL}/.well-known/runcard/registry.json"
+echo "  registry:      ${PUBLIC_BASE_URL}/.well-known/cvm/registry.json"
 if [[ "${CREATE_DEMO}" == "1" ]]; then
   echo "  join:          ${JOIN_URL}"
   echo "  dashboard:     ${DASHBOARD_URL}"
-  echo "  runcard:       ${RUNCARD_URL}"
+  echo "  cvm:       ${CVM_URL}"
   echo "  team payload:  ${STATE_DIR}/team.json"
 fi
 echo "  manifest:      ${SITE_MANIFEST}"
@@ -265,7 +265,7 @@ echo
 echo "[local-site] press Ctrl+C to stop"
 
 if [[ "${OPEN_BROWSER}" == "1" ]]; then
-  OPEN_URL="${RUNCARD_URL:-${HOME_URL}}"
+  OPEN_URL="${CVM_URL:-${HOME_URL}}"
   if command -v open >/dev/null 2>&1; then
     open "${OPEN_URL}" >/dev/null 2>&1 || true
   elif command -v xdg-open >/dev/null 2>&1; then

@@ -95,7 +95,7 @@ if [[ -z "${PUBLIC_BASE_URL}" ]]; then
 fi
 
 if [[ -z "${STATE_DIR}" ]]; then
-  STATE_DIR="$(mktemp -d /tmp/runcards-site-smoke.XXXXXX)"
+  STATE_DIR="$(mktemp -d /tmp/cvms-site-smoke.XXXXXX)"
 fi
 
 LOG_PATH="${STATE_DIR}/local-site.log"
@@ -190,12 +190,12 @@ if "gateway_base_url" not in self_host:
     raise SystemExit("self-host document missing gateway_base_url")
 if "accepted_tee_platforms" not in self_host.get("trust_policy", {}):
     raise SystemExit("self-host document missing trust_policy.accepted_tee_platforms")
-if registry.get("profile") != "https://runcard.dev/runcard-trust-registry/v1":
+if registry.get("profile") != "https://cvm.dev/cvm-trust-registry/v1":
     raise SystemExit("registry document has unexpected profile")
 if "accepted_tee_platforms" not in registry:
     raise SystemExit("registry missing accepted_tee_platforms")
 
-for key in ("join_url", "dashboard_url", "runcard_url"):
+for key in ("join_url", "dashboard_url", "cvm_url"):
     url = manifest.get(key)
     if not url:
         raise SystemExit(f"manifest missing {key}")
@@ -203,10 +203,10 @@ for key in ("join_url", "dashboard_url", "runcard_url"):
     if len(body) < 100:
         raise SystemExit(f"{key} response was unexpectedly small")
 
-runcard_json = json.loads(fetch(manifest["runcard_url"] + ".json", "application/json"))
-labels = runcard_json.get("labels", {})
+cvm_json = json.loads(fetch(manifest["cvm_url"] + ".json", "application/json"))
+labels = cvm_json.get("labels", {})
 if "capture_methods" not in labels or "assurance" not in labels or "enforcement" not in labels:
-    raise SystemExit("runcard JSON missing assurance labels")
+    raise SystemExit("cvm JSON missing assurance labels")
 
 print(json.dumps({
     "ok": True,
@@ -214,6 +214,6 @@ print(json.dumps({
     "tee_attested": runtime.get("tee_attested"),
     "home_url": manifest["home_url"],
     "dashboard_url": manifest["dashboard_url"],
-    "runcard_url": manifest["runcard_url"],
+    "cvm_url": manifest["cvm_url"],
 }, indent=2))
 PY

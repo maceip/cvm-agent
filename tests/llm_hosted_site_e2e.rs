@@ -116,18 +116,18 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
     );
     assert_eq!(
         self_host["profile"],
-        "https://runcard.dev/llm-self-host-instance/v1"
+        "https://cvm.dev/llm-self-host-instance/v1"
     );
     assert_eq!(self_host["runtime"]["mode"], "plain");
     assert_eq!(self_host["runtime"]["tee_attested"], false);
 
     let registry = get_json(
         &client,
-        format!("{base_url}/.well-known/runcard/registry.json"),
+        format!("{base_url}/.well-known/cvm/registry.json"),
     );
     assert_eq!(
         registry["profile"],
-        "https://runcard.dev/runcard-trust-registry/v1"
+        "https://cvm.dev/cvm-trust-registry/v1"
     );
     assert!(registry["accepted_tee_platforms"]
         .as_array()
@@ -166,15 +166,15 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
     );
     let team_id = team["team_id"].as_str().unwrap();
     assert_eq!(team["team_name"], "Local Solo");
-    assert!(team["runcard_url"].as_str().unwrap().contains(team_id));
+    assert!(team["cvm_url"].as_str().unwrap().contains(team_id));
     assert!(team["individual_signal_image_url"]
         .as_str()
         .unwrap()
-        .ends_with("/runcard.signal.svg"));
+        .ends_with("/cvm.signal.svg"));
     assert!(team["individual_signal_json_url"]
         .as_str()
         .unwrap()
-        .ends_with("/runcard.signal.json"));
+        .ends_with("/cvm.signal.json"));
     assert!(team["openai_compatible"]["OPENAI_BASE_URL"]
         .as_str()
         .unwrap()
@@ -189,42 +189,42 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
     assert!(dashboard.contains("Local Solo"));
     assert!(dashboard.contains("Captured events"));
 
-    let runcard_json = get_json(
+    let cvm_json = get_json(
         &client,
-        format!("{base_url}/e/{event_id}/teams/{team_id}/runcard.json"),
+        format!("{base_url}/e/{event_id}/teams/{team_id}/cvm.json"),
     );
     assert_eq!(
-        runcard_json["profile"],
-        "https://runcard.dev/llm-participant-runcard/v1"
+        cvm_json["profile"],
+        "https://cvm.dev/llm-participant-cvm/v1"
     );
-    assert_eq!(runcard_json["stats"]["captured_events"], 0);
-    assert!(runcard_json["share"]["embed_url"]
+    assert_eq!(cvm_json["stats"]["captured_events"], 0);
+    assert!(cvm_json["share"]["embed_url"]
         .as_str()
         .unwrap()
-        .ends_with("/runcard.embed"));
+        .ends_with("/cvm.embed"));
 
-    let runcard_page = client
-        .get(format!("{base_url}/e/{event_id}/teams/{team_id}/runcard"))
+    let cvm_page = client
+        .get(format!("{base_url}/e/{event_id}/teams/{team_id}/cvm"))
         .send()
         .unwrap()
         .text()
         .unwrap();
-    assert!(runcard_page.contains("summary_large_image"));
-    assert!(runcard_page.contains("iframe"));
+    assert!(cvm_page.contains("summary_large_image"));
+    assert!(cvm_page.contains("iframe"));
 
     let embed = client
         .get(format!(
-            "{base_url}/e/{event_id}/teams/{team_id}/runcard.embed"
+            "{base_url}/e/{event_id}/teams/{team_id}/cvm.embed"
         ))
         .send()
         .unwrap()
         .text()
         .unwrap();
-    assert!(embed.contains("Live runcard"));
+    assert!(embed.contains("Live cvm"));
 
     let svg = client
         .get(format!(
-            "{base_url}/e/{event_id}/teams/{team_id}/runcard.svg"
+            "{base_url}/e/{event_id}/teams/{team_id}/cvm.svg"
         ))
         .send()
         .unwrap()
@@ -232,16 +232,16 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
         .unwrap();
     assert!(svg.contains("<svg"));
     assert!(svg.contains("scan to verify"));
-    assert!(svg.contains("runcard-card-json"));
+    assert!(svg.contains("cvm-card-json"));
     assert!(svg.contains("data-content-type=\"application/json\""));
 
     let signal_json = get_json(
         &client,
-        format!("{base_url}/e/{event_id}/teams/{team_id}/runcard.signal.json"),
+        format!("{base_url}/e/{event_id}/teams/{team_id}/cvm.signal.json"),
     );
     assert_eq!(
         signal_json["profile"],
-        "https://runcard.dev/llm-individual-signal/v1"
+        "https://cvm.dev/llm-individual-signal/v1"
     );
     assert_eq!(signal_json["stats"]["captured_events"], 0);
     assert_eq!(
@@ -251,20 +251,20 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
 
     let signal_svg = client
         .get(format!(
-            "{base_url}/e/{event_id}/teams/{team_id}/runcard.signal.svg"
+            "{base_url}/e/{event_id}/teams/{team_id}/cvm.signal.svg"
         ))
         .send()
         .unwrap()
         .text()
         .unwrap();
-    assert!(signal_svg.contains("LIVE RUNCARD"));
+    assert!(signal_svg.contains("LIVE CVM"));
     assert!(signal_svg.contains("WAITING"));
-    assert!(signal_svg.contains("runcard-card-json"));
+    assert!(signal_svg.contains("cvm-card-json"));
     assert!(signal_svg.contains("llm-individual-signal/v1"));
 
     let qr = client
         .get(format!(
-            "{base_url}/e/{event_id}/teams/{team_id}/runcard.qr.svg"
+            "{base_url}/e/{event_id}/teams/{team_id}/cvm.qr.svg"
         ))
         .send()
         .unwrap()
@@ -274,25 +274,25 @@ fn hosted_site_local_plain_mode_serves_full_user_journey() {
 
     let proof = get_json(
         &client,
-        format!("{base_url}/e/{event_id}/teams/{team_id}/runcard.proof.json"),
+        format!("{base_url}/e/{event_id}/teams/{team_id}/cvm.proof.json"),
     );
-    assert_eq!(proof["profile"], "https://runcard.dev/llm-runcard-proof/v1");
+    assert_eq!(proof["profile"], "https://cvm.dev/llm-cvm-proof/v1");
 
     let credential = get_json(
         &client,
-        format!("{base_url}/e/{event_id}/teams/{team_id}/runcard.credential.json"),
+        format!("{base_url}/e/{event_id}/teams/{team_id}/cvm.credential.json"),
     );
     assert!(credential["type"]
         .as_array()
         .unwrap()
         .iter()
-        .any(|ty| ty == "RuncardCredential"));
+        .any(|ty| ty == "CvmCredential"));
 
     let oembed = get_json(
         &client,
         format!(
             "{base_url}/oembed?url={}",
-            team["runcard_url"].as_str().unwrap()
+            team["cvm_url"].as_str().unwrap()
         ),
     );
     assert_eq!(oembed["type"], "rich");

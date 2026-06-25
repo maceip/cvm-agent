@@ -1,12 +1,12 @@
 # LLM Attested
 
-LLM Attested is a Runcard application for hackathons where model and agent use
+LLM Attested is a Cvm application for hackathons where model and agent use
 can be captured, scored, and audited without forcing teams onto a specific
 model, provider, IDE, or agent.
 
 Hackathons are the first wedge, not the whole product. The same system should
 also support a generic `universal` event profile where any individual can start
-capturing AI activity and publish a personal runcard. That runcard can be used
+capturing AI activity and publish a personal cvm. That cvm can be used
 as a public proof-of-work or proof-of-usage card: across web, CLI, local model
 servers, agents, and workbenches, with explicit visibility controls for what
 the person wants to show.
@@ -22,7 +22,7 @@ The product promise:
 > sessions, using these captured model actions, with these token totals, under
 > this assurance level.
 
-The important word is "captured." Runcard can prove attested gateway code and
+The important word is "captured." Cvm can prove attested gateway code and
 the events it signed. It cannot magically prove that a contestant on an
 unrestricted laptop did not paste code from an outside chatbot. Strong "all LLM
 actions" claims require an enforced environment: managed credentials, egress
@@ -39,8 +39,8 @@ controls, or a hosted workbench.
 4. **Assurance is labeled.** Broad compatibility is welcome, but the dashboard
    must show whether an event came from an attested gateway, local proxy,
    browser extension, hosted workbench, or self-reported path.
-5. **Universal runcards exist.** A hackathon is just one event type. A person
-   should be able to create a persistent runcard for their own AI activity and
+5. **Universal cvms exist.** A hackathon is just one event type. A person
+   should be able to create a persistent cvm for their own AI activity and
    link it from a profile, portfolio, or social account.
 
 ## Shape
@@ -75,7 +75,7 @@ Everything else is an adapter:
    outbound network can only reach the attested gateway and approved developer
    services.
 - **GitHub integration.** A final build receipt ties the code submission,
-   GitHub commit, Runcard Value X, and LLM event log root together.
+   GitHub commit, Cvm Value X, and LLM event log root together.
 
 This keeps the product from turning into a nest of special cases. New
 competition types should not require new gateway APIs. They should require new
@@ -111,7 +111,7 @@ Capture adapters are the trust boundary for the events they emit. Upstream
 providers are sources of model output and provider-reported usage; they are not
 the attestation root.
 
-The dashboard verifies the gateway once through Runcard attested TLS, caches
+The dashboard verifies the gateway once through Cvm attested TLS, caches
 the gateway boot receipt, then verifies cheap event signatures from that
 gateway. This follows the existing "bootstrap once, then cheap verification"
 pattern in `DESIGN.md`.
@@ -126,7 +126,7 @@ A self-hosted organizer runs:
 
 - `llm-event-service` on the organizer's domain.
 - One or more `llm-gateway` instances under the organizer's control.
-- Their chosen Runcard verifier root and policy for TDX, SEV-SNP, Nitro, or
+- Their chosen Cvm verifier root and policy for TDX, SEV-SNP, Nitro, or
   any future verifier profile the deployment explicitly accepts.
 - Their own provider credentials, egress policy, log retention policy, and
   dashboard access controls.
@@ -135,27 +135,27 @@ The self-hosted service publishes:
 
 ```http
 GET /.well-known/llm-attested/self-host.json
-GET /.well-known/runcard/registry.json
+GET /.well-known/cvm/registry.json
 GET /e/<event_id>/bootstrap.json
 ```
 
 Each event bootstrap names the gateway manifest URL, event sink URL, capture
 methods, and `trust_policy`. A client does not need to know whether the
-competition is hosted by Runcard or by an agency. It follows the bootstrap,
-fetches the gateway manifest, fetches the Runcard receipt named by the trust
+competition is hosted by Cvm or by an agency. It follows the bootstrap,
+fetches the gateway manifest, fetches the Cvm receipt named by the trust
 policy, verifies the EAT against the named registry, and then routes model
 traffic through the advertised capture method.
 
 The gateway publishes:
 
 ```http
-GET /.well-known/runcard/receipt
+GET /.well-known/cvm/receipt
 GET /.well-known/llm-attested/manifest.cbor
 GET /.well-known/llm-attested/manifest.json
 ```
 
 `accepted_tee_platforms` is a policy label, not a hardcoded product lock. The
-current Runcard verifier path already covers the supported roots in this repo;
+current Cvm verifier path already covers the supported roots in this repo;
 SGX can be added as another accepted platform/profile when verifier support is
 available. Clients must display the actual verified platform and assurance
 level instead of collapsing everything into a generic "secure" badge.
@@ -196,18 +196,18 @@ Supported capture paths:
 
 | Capture path | Implementation | Assurance label | Enforcement label |
 | --- | --- | --- | --- |
-| Attested gateway | `llm-gateway` with event signing and Runcard manifest/receipt endpoints | `attested` | `routed` or `managed_keys` |
+| Attested gateway | `llm-gateway` with event signing and Cvm manifest/receipt endpoints | `attested` | `routed` or `managed_keys` |
 | Local capture proxy | `llm-gateway --upstream-no-auth --capture-method local_proxy` pointing at Ollama, LM Studio, oMLX, vLLM, etc. | `participant_controlled` | `routed` |
 | Browser extension | `capture/browser-extension` plus `llm-capture-daemon` companion | `participant_controlled` | `routed` |
 | SDK/CLI wrapper | `llmattest run` | `participant_controlled` | `routed` |
 | Organizer-hosted local/open model gateway | `llm-gateway --upstream-no-auth` against organizer model infrastructure | `managed` | `managed_keys` |
 | Strict workbench | `llmattest workbench-run` inside a locked-down workspace image/profile | `managed` | `strict_workbench` |
-| Full TEE workspace | `llmattest tee-run` inside the Runcard/TEE workspace launcher | `attested` | `full_tee` |
+| Full TEE workspace | `llmattest tee-run` inside the Cvm/TEE workspace launcher | `attested` | `full_tee` |
 | Manual import | `llmattest emit` or `llm-capture-daemon /capture/manual` | `self_reported` | usually `routed` or `none` |
 | Provider TLS/MPC notary fallback | `llmattest notary-import` with a TLSNotary/MPC-TLS proof of a provider usage page or API response | `participant_controlled` | `retrospective_proof` |
 
 The implementation rule is simple: every path emits `ContestEvent` CBOR to the
-event service. The dashboard and scorer see one event shape, while the runcard
+event service. The dashboard and scorer see one event shape, while the cvm
 shows the capture path and assurance differences clearly.
 
 ### Retrospective Provider Proofs
@@ -216,7 +216,7 @@ There should be a mercy lane for teams that forgot to install the capture stack
 or were working in a weird environment. TLSNotary-style MPC-TLS proofs can help
 there: the participant proves that a specific HTTPS response came from a
 provider account page or usage API, and then imports that proof into their
-runcard.
+cvm.
 
 The path is intentionally labeled differently:
 
@@ -242,7 +242,7 @@ What it can prove:
 
 - A usage snapshot or API response was authentic for the named HTTPS origin.
 - The imported token/call totals match the participant's disclosed claim.
-- The proof file hash and claim hash are tied into the runcard receipt chain.
+- The proof file hash and claim hash are tied into the cvm receipt chain.
 
 What it cannot prove:
 
@@ -269,10 +269,10 @@ The one-binary participant flow:
    event/team payload to `~/.llmattest/config.json`, starts the local browser
    and manual capture companion, emits a smoke event, and launches the wrapped
    tool with capture environment variables.
-4. `llmattest status` checks the bootstrap URL, runcard URL, gateway health,
+4. `llmattest status` checks the bootstrap URL, cvm URL, gateway health,
    and manifest URL.
 5. `llmattest smoke` emits a `capture.health` event so the participant and
-   organizer can see the runcard move before real work starts.
+   organizer can see the cvm move before real work starts.
 6. `llmattest` probes the machine and event policy:
    - Is this an organizer-managed workbench?
    - Is this a TEE workspace?
@@ -285,8 +285,8 @@ The one-binary participant flow:
 7. `llmattest` chooses the strongest working path allowed by the event policy.
 8. `llmattest run -- ...` or the command passed to `llmattest start` injects
    `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `LLM_ATTESTED_TEAM_ID`,
-   `LLM_ATTESTED_RUNCARD_URL`, and local capture URLs for tools it wraps.
-9. The participant sees one status: connected, capturing, and current runcard.
+   `LLM_ATTESTED_CVM_URL`, and local capture URLs for tools it wraps.
+9. The participant sees one status: connected, capturing, and current cvm.
 
 `llmattest start` reports these probes as a single `capability_probes` array.
 That array is the narrow handoff between environment discovery and capture
@@ -301,7 +301,7 @@ Local capture durability is part of the one-binary contract. The companion
 appends every accepted capture to an event log before delivery. If the event
 service is unavailable, it returns `queued: true`, writes the event to a pending
 queue, and retries with backoff. The hosted/self-hosted event service treats
-replayed event hashes idempotently so retry storms do not inflate runcards.
+replayed event hashes idempotently so retry storms do not inflate cvms.
 
 Participant status is also one command:
 
@@ -309,7 +309,7 @@ Participant status is also one command:
 llmattest status --watch
 ```
 
-The watch payload includes the live runcard URL, selected capture path, latest
+The watch payload includes the live cvm URL, selected capture path, latest
 event hash/receipt, capability probes, and actionable recovery steps. This is
 what support staff should ask teams to paste before escalating a setup issue.
 
@@ -388,17 +388,17 @@ real caller that needs them independently.
 ### Gateway Boot Receipt
 
 The boot receipt proves the gateway service itself is genuine. It is produced
-by the existing Runcard runtime flow:
+by the existing Cvm runtime flow:
 
 - Stage 0 builds the gateway.
 - Stage 1 runs the gateway inside a TEE.
-- Attested TLS binds the live TLS key to the Runcard EAT.
+- Attested TLS binds the live TLS key to the Cvm EAT.
 - The dashboard verifies the EAT, quote binding, hardware root, and Value X.
 
 The gateway should then serve:
 
 ```http
-GET /.well-known/runcard/receipt
+GET /.well-known/cvm/receipt
 GET /.well-known/llm-attested/manifest.cbor
 ```
 
@@ -408,13 +408,13 @@ dashboard. It contains:
 ```json
 {
   "version": 1,
-  "profile": "https://runcard.dev/llm-contest-manifest/v1",
+  "profile": "https://cvm.dev/llm-contest-manifest/v1",
   "issuer": "https://events.example",
   "hackathon_id": "hk_...",
   "gateway_id": "gw_...",
   "competition_url": "https://events.example/e/hk_...",
   "gateway_manifest_url": "https://gateway.example/.well-known/llm-attested/manifest.cbor",
-  "runcard_receipt_hash": "sha256:...",
+  "cvm_receipt_hash": "sha256:...",
   "value_x": "sha384:...",
   "policy_hash": "sha256:...",
   "scoring_rule_hash": "sha256:...",
@@ -429,9 +429,9 @@ dashboard. It contains:
   "trust_policy": {
     "required": true,
     "accepted_tee_platforms": ["tdx", "sev-snp", "nitro"],
-    "runcard_receipt_url": "https://gateway.example/.well-known/runcard/receipt",
-    "registry_url": "https://events.example/.well-known/runcard/registry.json",
-    "verifier_profile": "runcard-eat-v2"
+    "cvm_receipt_url": "https://gateway.example/.well-known/cvm/receipt",
+    "registry_url": "https://events.example/.well-known/cvm/registry.json",
+    "verifier_profile": "cvm-eat-v2"
   },
   "event_signing_jwk": {},
   "event_kinds": ["llm.call", "agent.session", "submission"]
@@ -454,7 +454,7 @@ final code size without changing the log format.
 ```json
 {
   "version": 1,
-  "profile": "https://runcard.dev/contest-event/v1",
+  "profile": "https://cvm.dev/contest-event/v1",
   "event_id": "evt_...",
   "kind": "llm.call",
   "hackathon_id": "hk_...",
@@ -615,7 +615,7 @@ Core views:
 
 - **Leaderboard:** team ranking by current scoring rule.
 - **Team card:** token totals, model mix, agent sessions, cost, latest event,
-  final GitHub commit, final Runcard Value X, enforcement mode.
+  final GitHub commit, final Cvm Value X, enforcement mode.
 - **Attestation card:** gateway Value X, platform, quote status, policy hash,
   event signing key, verified-at time.
 - **Event stream:** recent model calls with provider, model, tokens, agent,
@@ -624,7 +624,7 @@ Core views:
   inclusion proof, signature verification, upstream request ID.
 - **Submission page:** final commit, build receipt, event log root, score,
   disqualification flags.
-- **Participant runcard:** per-team shareable runcard with capture methods,
+- **Participant cvm:** per-team shareable cvm with capture methods,
   assurance labels, enforcement labels, token totals, min/max call tokens,
   model mix, provider mix, and agent-session counts.
 
@@ -655,21 +655,21 @@ Challenge types this unlocks:
    - hosted workbench link when enabled
 5. Teams use any model, provider, IDE, or agent that fits a capture method.
 6. Captured events appear live with `capture_method` and `assurance` labels.
-7. Final submission runs a Runcard build or check.
+7. Final submission runs a Cvm build or check.
 8. Dashboard links final commit, final Value X, event log root, score, and
    assurance level.
 9. Judges can verify the whole package offline.
 
-## Participant Runcards
+## Participant Cvms
 
-Each team receives a participant runcard generated from the captured event log:
+Each team receives a participant cvm generated from the captured event log:
 
 ```http
-GET /e/<event_id>/teams/<team_id>/runcard.json
-GET /e/<event_id>/runcards.json
+GET /e/<event_id>/teams/<team_id>/cvm.json
+GET /e/<event_id>/cvms.json
 ```
 
-The runcard must never flatten assurance into a single "attested" badge. It
+The cvm must never flatten assurance into a single "attested" badge. It
 shows the three dimensions separately:
 
 ```text
@@ -694,9 +694,9 @@ This lets the product say, precisely: "this team won minimum tokens under
 Managed Keys" or "this team used local models through Participant Controlled
 Local Proxy." Both can be fun. They are not the same security claim.
 
-### Universal Runcards
+### Universal Cvms
 
-Universal runcards remove the hackathon wrapper. The event type is
+Universal cvms remove the hackathon wrapper. The event type is
 `universal`, the "team" is a person or project identity, and the goal is public
 proof of selected AI activity rather than contest scoring.
 
@@ -708,7 +708,7 @@ Examples:
 - "Here are only the stats I elected to show: token totals and models, but not
   transcript hashes or exact agent sessions."
 
-The same runcard schema applies, but visibility controls can hide or reveal:
+The same cvm schema applies, but visibility controls can hide or reveal:
 
 - capture labels
 - token stats
@@ -720,23 +720,23 @@ The honest claim is still "captured activity," not "all possible activity."
 The value is that the card is signed, timestamped, and backed by the same event
 ledger as competitions.
 
-### Shareable Runcards Are Live Objects
+### Shareable Cvms Are Live Objects
 
-A runcard should not be only a PNG badge. The share URL is the canonical object,
+A cvm should not be only a PNG badge. The share URL is the canonical object,
 and image/card artifacts are renderings of it.
 
 Current event-service surfaces:
 
 ```http
-GET /e/<event_id>/teams/<team_id>/runcard
-GET /e/<event_id>/teams/<team_id>/runcard.json
-GET /e/<event_id>/teams/<team_id>/runcard.embed
-GET /e/<event_id>/teams/<team_id>/runcard.svg
-GET /e/<event_id>/teams/<team_id>/runcard.qr.svg
-GET /e/<event_id>/teams/<team_id>/runcard.proof.json
-GET /e/<event_id>/teams/<team_id>/runcard.receipts.json
-GET /e/<event_id>/teams/<team_id>/runcard.credential.json
-GET /oembed?url=<runcard_url>
+GET /e/<event_id>/teams/<team_id>/cvm
+GET /e/<event_id>/teams/<team_id>/cvm.json
+GET /e/<event_id>/teams/<team_id>/cvm.embed
+GET /e/<event_id>/teams/<team_id>/cvm.svg
+GET /e/<event_id>/teams/<team_id>/cvm.qr.svg
+GET /e/<event_id>/teams/<team_id>/cvm.proof.json
+GET /e/<event_id>/teams/<team_id>/cvm.receipts.json
+GET /e/<event_id>/teams/<team_id>/cvm.credential.json
+GET /oembed?url=<cvm_url>
 ```
 
 The user-facing page includes Open Graph and oEmbed metadata so social sites,
@@ -744,16 +744,16 @@ blogs, docs, and portfolio pages can render a preview. The iframe surface is a
 live card that can refresh in place, so someone embedding it on a profile or
 project page is not freezing the claim at screenshot time. The SVG surface is a
 fallback for link previews and badge images. It includes a QR code back to the
-canonical runcard URL, because screenshots and reposts will always happen.
+canonical cvm URL, because screenshots and reposts will always happen.
 
 The proof bundle is the narrow verifier interface:
 
-- `runcard_json_hash`
+- `cvm_json_hash`
 - `event_log_root`
 - ordered signed event hashes
 - receipt export URL
 - gateway manifest URL
-- Runcard receipt URL
+- Cvm receipt URL
 - registry URL
 
 That keeps the marketing artifact and the verifier artifact connected without
@@ -763,35 +763,35 @@ making every consumer understand every capture adapter.
 
 C2PA / Content Credentials are the right mental model for exported media:
 tamper-evident provenance bound to a file. They are useful for future exported
-PNG/SVG/PDF runcards, but they do not replace the live runcard URL because many
+PNG/SVG/PDF cvms, but they do not replace the live cvm URL because many
 social and messaging platforms strip metadata, and a copied screenshot loses the
-manifest. Runcard should use C2PA as an export layer, not as the canonical data
+manifest. Cvm should use C2PA as an export layer, not as the canonical data
 model.
 
 W3C Verifiable Credentials and Open Badges 3.0 are a better fit for portable
-achievement and identity claims. The current `runcard.credential.json` is a
+achievement and identity claims. The current `cvm.credential.json` is a
 draft credential-shaped export that points back to the proof bundle and signed
 receipts. A later version should sign this with a standards-compatible VC proof
 format such as Data Integrity or JOSE/COSE once the issuer key lifecycle is
 settled.
 
 Digital Credentials API support is a future browser/wallet presentation path:
-a viewer could ask the holder to present a runcard credential directly from a
+a viewer could ask the holder to present a cvm credential directly from a
 wallet. That is not required for the first product, and it should not block the
 simple share URL / iframe / QR path.
 
 #### Attested Rendering
 
-The strongest public flex is a runcard URL rendered by a service whose TLS
-certificate is itself bound to a Runcard EAT. In that mode the iframe is not
-"some HTML we hosted"; it is a live renderer running a known runcard renderer
+The strongest public flex is a cvm URL rendered by a service whose TLS
+certificate is itself bound to a Cvm EAT. In that mode the iframe is not
+"some HTML we hosted"; it is a live renderer running a known cvm renderer
 Value X inside TDX, SEV-SNP, Nitro, or another supported root.
 
 The browser still will not natively show a TEE lock icon, so the page should
 make verification easy:
 
-- `/.well-known/runcard/registry.json` names the verifier policy.
-- The runcard links its proof bundle and Runcard receipt.
+- `/.well-known/cvm/registry.json` names the verifier policy.
+- The cvm links its proof bundle and Cvm receipt.
 - A future `POST /proof/challenge` can return a fresh nonce-bound quote for the
   renderer, gateway, or strict workspace.
 - The QR code always lands on the canonical URL, not on an image CDN copy.
@@ -805,7 +805,7 @@ credential presentation as the ecosystem matures.
 What the system can prove:
 
 - The gateway code was the reviewed gateway source, running inside genuine TEE
-  hardware, verified by Runcard.
+  hardware, verified by Cvm.
 - The gateway saw and proxied specific model calls.
 - Token/cost metrics in receipts were computed by the gateway code, with
   provider usage copied where available.
@@ -871,11 +871,11 @@ Deliverables:
 - `POST /e/<event>/teams` that self-issues team start config.
 - `POST /e/<event>/events` that stores signed event CBOR from capture adapters.
 - `GET /.well-known/llm-attested/self-host.json` for self-host discovery.
-- `GET /.well-known/runcard/registry.json` for deployment trust policy.
+- `GET /.well-known/cvm/registry.json` for deployment trust policy.
 - `GET /e/<event>/bootstrap.json` for client bootstrapping.
 - Join page with install/update commands, team payload creation, and one
   `llmattest start --team-payload team.json -- <agent>` command.
-- `llm-gateway` binary that can run under `runcard run`.
+- `llm-gateway` binary that can run under `cvm run`.
 - `llmattest` CLI for one-command startup, SDK wrapper, browser/manual local
   capture, strict workbench launcher, TEE workspace launcher, and manual event
   import.
@@ -883,14 +883,14 @@ Deliverables:
   local capture.
 - Team API keys and hackathon policy config.
 - Event signing key generated on boot.
-- Runcard receipt and `manifest.cbor` served by the gateway.
+- Cvm receipt and `manifest.cbor` served by the gateway.
 - Generic contest event CBOR receipts with `kind = "llm.call"`.
 - Postgres or SQLite event store.
 - One scorer interface and two built-in scorers:
   - minimum tokens
   - maximum tokens under budget
 - Minimal dashboard that renders `score_report` and receipt verification.
-- Participant runcards that expose capture method, assurance, enforcement,
+- Participant cvms that expose capture method, assurance, enforcement,
   token stats, model mix, provider mix, and agent-session counts.
 
 This is enough for an organizer to create an event, share one URL, and run
@@ -922,7 +922,7 @@ Deliverables:
   approved package registries.
 - Agent launcher that assigns signed session IDs.
 - Optional screen/terminal activity metadata, if organizers want it.
-- Final Runcard build that embeds or references the event log root.
+- Final Cvm build that embeds or references the event log root.
 - Dashboard enforcement badges: Routed, Managed Keys, Strict Workbench.
 
 ### Phase 4: Hardened Attestation
@@ -948,12 +948,12 @@ an application on top of attested TLS:
 3. Reuse `EatToken`, attested TLS, and quote verification as-is.
 4. Define `ContestManifest`, `ContestEvent`, and `ScoreReport` as
    application-level CBOR.
-5. Make the dashboard verify the Runcard EAT once, then verify event receipts
+5. Make the dashboard verify the Cvm EAT once, then verify event receipts
    and score reports.
 6. Keep provider adapters internal until at least three real agents need the
    same extension point.
 7. Only consider an EAT schema change after the demo proves the event signing
    key and policy hash need offline quote-level binding.
 
-That keeps Runcard's core invariant clean: the quote proves the running gateway
+That keeps Cvm's core invariant clean: the quote proves the running gateway
 code. The LLM product proves what that gateway observed and signed.

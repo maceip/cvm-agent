@@ -19,10 +19,10 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const MANIFEST_VERSION: u32 = 1;
-pub const MANIFEST_PROFILE: &str = "https://runcard.dev/llm-contest-manifest/v1";
+pub const MANIFEST_PROFILE: &str = "https://cvm.dev/llm-contest-manifest/v1";
 pub const EVENT_VERSION: u32 = 1;
-pub const EVENT_PROFILE: &str = "https://runcard.dev/contest-event/v1";
-pub const CAPTURE_RA_PROFILE: &str = "https://runcard.dev/llm-capture-ra/v1";
+pub const EVENT_PROFILE: &str = "https://cvm.dev/contest-event/v1";
+pub const CAPTURE_RA_PROFILE: &str = "https://cvm.dev/llm-capture-ra/v1";
 
 #[derive(Debug, thiserror::Error)]
 pub enum LlmAttestedError {
@@ -61,43 +61,43 @@ pub const REMOTE_ATTESTED_CAPTURE_PATHS: &[AttestedCapturePathSpec] = &[
         capture_method: "gateway_proxy",
         assurance: "attested",
         enforcement: "routed",
-        requirement: "gateway endpoint serves manifest and model API from a Runcard-verified TEE",
+        requirement: "gateway endpoint serves manifest and model API from a Cvm-verified TEE",
     },
     AttestedCapturePathSpec {
         capture_method: "gateway_proxy",
         assurance: "attested",
         enforcement: "managed_keys",
-        requirement: "organizer-managed provider keys live behind a Runcard-verified TEE gateway",
+        requirement: "organizer-managed provider keys live behind a Cvm-verified TEE gateway",
     },
     AttestedCapturePathSpec {
         capture_method: "local_proxy",
         assurance: "attested",
         enforcement: "routed",
-        requirement: "local-model proxy runs in a Runcard-verified TEE sidecar or workspace",
+        requirement: "local-model proxy runs in a Cvm-verified TEE sidecar or workspace",
     },
     AttestedCapturePathSpec {
         capture_method: "sdk_cli_wrapper",
         assurance: "attested",
         enforcement: "routed",
-        requirement: "wrapper event signer runs inside a Runcard-verified TEE workspace",
+        requirement: "wrapper event signer runs inside a Cvm-verified TEE workspace",
     },
     AttestedCapturePathSpec {
         capture_method: "browser_extension",
         assurance: "attested",
         enforcement: "attested_broker",
-        requirement: "browser observer is mediated by a Runcard-verified broker; desktop extension alone is insufficient",
+        requirement: "browser observer is mediated by a Cvm-verified broker; desktop extension alone is insufficient",
     },
     AttestedCapturePathSpec {
         capture_method: "strict_workbench",
         assurance: "attested",
         enforcement: "strict_workbench",
-        requirement: "workbench launcher and event signer run inside a Runcard-verified TEE",
+        requirement: "workbench launcher and event signer run inside a Cvm-verified TEE",
     },
     AttestedCapturePathSpec {
         capture_method: "tee_workspace",
         assurance: "attested",
         enforcement: "full_tee",
-        requirement: "participant workspace and event signer run inside a Runcard-verified TEE",
+        requirement: "participant workspace and event signer run inside a Cvm-verified TEE",
     },
 ];
 
@@ -125,7 +125,7 @@ pub enum CaptureRaError {
     ChainValueXDrift { leaf: String, previous: String },
     #[error("attestation chain is deeper than {0} stages")]
     ChainTooDeep(usize),
-    #[error("runcard receipt hash mismatch: expected {expected}, got {got}")]
+    #[error("cvm receipt hash mismatch: expected {expected}, got {got}")]
     ReceiptHashMismatch { expected: String, got: String },
     #[error("manifest value_x mismatch: expected {expected}, got {got}")]
     ValueXMismatch { expected: String, got: String },
@@ -136,7 +136,7 @@ pub enum CaptureRaError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct VerifiedRuncardReceipt {
+pub struct VerifiedCvmReceipt {
     pub verifier_profile: String,
     pub platform: String,
     pub value_x: String,
@@ -158,7 +158,7 @@ pub struct CaptureRaClaim {
     pub value_x: String,
     pub platform_measurement: String,
     pub quote_binding_hash: String,
-    pub runcard_receipt_hash: String,
+    pub cvm_receipt_hash: String,
     pub manifest_hash: String,
     pub event_signing_key_hash: String,
     pub chain_depth: u32,
@@ -177,18 +177,18 @@ pub fn attested_capture_path_spec(
         .find(|spec| spec.capture_method == capture_method && spec.enforcement == enforcement)
 }
 
-pub fn verify_runcard_receipt(
+pub fn verify_cvm_receipt(
     receipt_cbor: &[u8],
     accepted_tee_platforms: &[String],
     verifier_profile: &str,
-) -> std::result::Result<VerifiedRuncardReceipt, CaptureRaError> {
+) -> std::result::Result<VerifiedCvmReceipt, CaptureRaError> {
     let receipt_hash = sha256_prefixed(receipt_cbor);
     let eat =
         EatToken::from_cbor(receipt_cbor).map_err(|e| CaptureRaError::EatDecode(e.to_string()))?;
     let leaf_value_x = eat.value_x;
     let (platform, platform_measurement, binding, depth) =
         verify_eat_chain(&eat, accepted_tee_platforms, &leaf_value_x, 0)?;
-    Ok(VerifiedRuncardReceipt {
+    Ok(VerifiedCvmReceipt {
         verifier_profile: verifier_profile.to_string(),
         platform: platform_label(platform).to_string(),
         value_x: format!("sha384:{}", hex::encode(leaf_value_x)),
@@ -222,14 +222,14 @@ pub fn build_capture_ra_claim(
             capture_method.to_string(),
         ));
     }
-    let verified = verify_runcard_receipt(
+    let verified = verify_cvm_receipt(
         receipt_cbor,
         &manifest.trust_policy.accepted_tee_platforms,
         &manifest.trust_policy.verifier_profile,
     )?;
-    if manifest.runcard_receipt_hash != verified.receipt_hash {
+    if manifest.cvm_receipt_hash != verified.receipt_hash {
         return Err(CaptureRaError::ReceiptHashMismatch {
-            expected: manifest.runcard_receipt_hash.clone(),
+            expected: manifest.cvm_receipt_hash.clone(),
             got: verified.receipt_hash,
         });
     }
@@ -250,7 +250,7 @@ pub fn build_capture_ra_claim(
         value_x: verified.value_x,
         platform_measurement: verified.platform_measurement,
         quote_binding_hash: verified.quote_binding_hash,
-        runcard_receipt_hash: verified.receipt_hash,
+        cvm_receipt_hash: verified.receipt_hash,
         manifest_hash: manifest_hash.to_string(),
         event_signing_key_hash: sha256_prefixed(manifest.event_signing_jwk.x.as_bytes()),
         chain_depth: verified.chain_depth,
@@ -281,8 +281,8 @@ pub fn insert_capture_ra_evidence(evidence: &mut BTreeMap<String, String>, claim
         claim.quote_binding_hash.clone(),
     );
     evidence.insert(
-        "ra_runcard_receipt_hash".to_string(),
-        claim.runcard_receipt_hash.clone(),
+        "ra_cvm_receipt_hash".to_string(),
+        claim.cvm_receipt_hash.clone(),
     );
     evidence.insert("ra_manifest_hash".to_string(), claim.manifest_hash.clone());
     evidence.insert(
@@ -308,8 +308,8 @@ pub fn event_matches_capture_ra_claim(event: &ContestEvent, claim: &CaptureRaCla
             .unwrap_or(false)
         && event
             .evidence
-            .get("ra_runcard_receipt_hash")
-            .map(|value| value == &claim.runcard_receipt_hash)
+            .get("ra_cvm_receipt_hash")
+            .map(|value| value == &claim.cvm_receipt_hash)
             .unwrap_or(false)
         && event
             .evidence
@@ -433,7 +433,7 @@ impl PublicJwk {
 pub struct TrustPolicy {
     pub required: bool,
     pub accepted_tee_platforms: Vec<String>,
-    pub runcard_receipt_url: String,
+    pub cvm_receipt_url: String,
     pub registry_url: String,
     pub verifier_profile: String,
 }
@@ -441,15 +441,15 @@ pub struct TrustPolicy {
 impl TrustPolicy {
     pub fn self_hosted(
         accepted_tee_platforms: Vec<String>,
-        runcard_receipt_url: String,
+        cvm_receipt_url: String,
         registry_url: String,
     ) -> Self {
         Self {
             required: true,
             accepted_tee_platforms,
-            runcard_receipt_url,
+            cvm_receipt_url,
             registry_url,
-            verifier_profile: "runcard-eat-v2".to_string(),
+            verifier_profile: "cvm-eat-v2".to_string(),
         }
     }
 }
@@ -463,9 +463,9 @@ impl Default for TrustPolicy {
                 "sev-snp".to_string(),
                 "nitro".to_string(),
             ],
-            runcard_receipt_url: String::new(),
+            cvm_receipt_url: String::new(),
             registry_url: String::new(),
-            verifier_profile: "runcard-eat-v2".to_string(),
+            verifier_profile: "cvm-eat-v2".to_string(),
         }
     }
 }
@@ -479,7 +479,7 @@ pub struct ContestManifest {
     pub gateway_id: String,
     pub competition_url: String,
     pub gateway_manifest_url: String,
-    pub runcard_receipt_hash: String,
+    pub cvm_receipt_hash: String,
     pub value_x: String,
     pub policy_hash: String,
     pub scoring_rule_hash: String,
@@ -499,7 +499,7 @@ impl ContestManifest {
         gateway_id: String,
         competition_url: String,
         gateway_manifest_url: String,
-        runcard_receipt_hash: String,
+        cvm_receipt_hash: String,
         value_x: String,
         policy_hash: String,
         scoring_rule_hash: String,
@@ -518,7 +518,7 @@ impl ContestManifest {
             gateway_id,
             competition_url,
             gateway_manifest_url,
-            runcard_receipt_hash,
+            cvm_receipt_hash,
             value_x,
             policy_hash,
             scoring_rule_hash,
@@ -816,8 +816,8 @@ mod tests {
                     "sev-snp".to_string(),
                     "nitro".to_string(),
                 ],
-                "https://gateway.example/.well-known/runcard/receipt".to_string(),
-                "https://events.example/.well-known/runcard/registry.json".to_string(),
+                "https://gateway.example/.well-known/cvm/receipt".to_string(),
+                "https://events.example/.well-known/cvm/registry.json".to_string(),
             ),
             key,
             vec!["llm.call".to_string()],

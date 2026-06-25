@@ -1,4 +1,4 @@
-//! runcard: attested builds and runtime.
+//! cvm: attested builds and runtime.
 //!
 //! See CONSTITUTION.md.
 //!
@@ -11,8 +11,8 @@
 //!            Value X proves the output matches expectations
 //!
 //! Usage:
-//!   runcard build <source-dir> [--cmd "cargo build --release"] [--output ./out]
-//!   runcard verify <attestation.json>
+//!   cvm build <source-dir> [--cmd "cargo build --release"] [--output ./out]
+//!   cvm verify <attestation.json>
 //!
 //! The build subcommand:
 //!   1. Verifies it's running inside a TEE (refuses to run otherwise)
@@ -66,7 +66,7 @@ fn main() -> anyhow::Result<()> {
                 Err(_) => {
                     // Tokio failed (likely inside a Nitro Enclave).
                     // Fall back to synchronous vsock-only path.
-                    eprintln!("[runcard] Async runtime unavailable, using sync mode");
+                    eprintln!("[cvm] Async runtime unavailable, using sync mode");
                     cmd_run_sync(&args[2..])
                 }
             }
@@ -98,7 +98,7 @@ fn cli_name() -> String {
         .next()
         .and_then(|arg| Path::new(&arg).file_stem().map(|stem| stem.to_owned()))
         .and_then(|stem| stem.to_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "runcard".to_string())
+        .unwrap_or_else(|| "cvm".to_string())
 }
 
 /// TCP-to-vsock proxy. Runs on the parent instance.
@@ -135,20 +135,20 @@ fn cmd_proxy(args: &[String]) -> anyhow::Result<()> {
 
     let cid = cid.ok_or_else(|| anyhow::anyhow!("--cid <enclave-cid> required"))?;
 
-    eprintln!("[runcard] Proxy: TCP:{port} → enclave CID {cid}");
-    eprintln!("[runcard] TLS terminates inside the enclave. This proxy only sees encrypted bytes.");
+    eprintln!("[cvm] Proxy: TCP:{port} → enclave CID {cid}");
+    eprintln!("[cvm] TLS terminates inside the enclave. This proxy only sees encrypted bytes.");
 
     if acme {
         let proxy_port = port;
         std::thread::spawn(move || {
             // Wait for proxy + enclave to be ready
-            eprintln!("[runcard/acme] Waiting for enclave...");
+            eprintln!("[cvm/acme] Waiting for enclave...");
             std::thread::sleep(std::time::Duration::from_secs(5));
 
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
                 Err(e) => {
-                    eprintln!("[runcard/acme] Failed to create async runtime: {e}");
+                    eprintln!("[cvm/acme] Failed to create async runtime: {e}");
                     return;
                 }
             };
@@ -169,17 +169,17 @@ fn cmd_proxy(args: &[String]) -> anyhow::Result<()> {
                         Ok(body) => match serde_json::from_str(&body) {
                             Ok(j) => j,
                             Err(e) => {
-                                eprintln!("[runcard/acme] Failed to parse attestation: {e}");
+                                eprintln!("[cvm/acme] Failed to parse attestation: {e}");
                                 return;
                             }
                         },
                         Err(e) => {
-                            eprintln!("[runcard/acme] Failed to read response: {e}");
+                            eprintln!("[cvm/acme] Failed to read response: {e}");
                             return;
                         }
                     },
                     Err(e) => {
-                        eprintln!("[runcard/acme] Enclave not reachable: {e}");
+                        eprintln!("[cvm/acme] Enclave not reachable: {e}");
                         return;
                     }
                 };
@@ -187,22 +187,22 @@ fn cmd_proxy(args: &[String]) -> anyhow::Result<()> {
                 let domain = match att["domain"].as_str() {
                     Some(d) => d.to_string(),
                     None => {
-                        eprintln!("[runcard/acme] No domain in attestation");
+                        eprintln!("[cvm/acme] No domain in attestation");
                         return;
                     }
                 };
 
-                eprintln!("[runcard/acme] Domain: {domain}");
+                eprintln!("[cvm/acme] Domain: {domain}");
 
                 match net::acme::provision_cert_for_enclave(&domain, &enclave_url, acme_staging)
                     .await
                 {
                     Ok(()) => {
-                        eprintln!("[runcard/acme] === ACME COMPLETE ===");
-                        eprintln!("[runcard/acme] https://{domain} is now valid TLS");
+                        eprintln!("[cvm/acme] === ACME COMPLETE ===");
+                        eprintln!("[cvm/acme] https://{domain} is now valid TLS");
                     }
                     Err(e) => {
-                        eprintln!("[runcard/acme] FAILED: {e}");
+                        eprintln!("[cvm/acme] FAILED: {e}");
                     }
                 }
             });
@@ -245,7 +245,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
 
     // --- Step 1: Verify TEE ---
     // CONSTITUTION: "It must be computed inside a TEE. Not on a developer's laptop."
-    eprintln!("[runcard] Detecting TEE...");
+    eprintln!("[cvm] Detecting TEE...");
     let tee_provider = tee::detect::detect_tee().map_err(|e| {
         anyhow::anyhow!(
             "No TEE detected: {e}\n\
@@ -253,14 +253,14 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
              This binary refuses to produce attestations outside a TEE."
         )
     })?;
-    eprintln!("[runcard] TEE: {:?}", tee_provider.platform());
+    eprintln!("[cvm] TEE: {:?}", tee_provider.platform());
 
     // --- Step 2: RATCHET — Lock source hash before building ---
     // Attestable Containers paper: CT is computed and locked before any
     // untrusted code runs. After this point, the source cannot change.
-    eprintln!("[runcard] Computing source hash (CT)...");
+    eprintln!("[cvm] Computing source hash (CT)...");
     let ct = compute_tree_hash(&source_dir)?;
-    eprintln!("[runcard] CT = {}", hex::encode(ct));
+    eprintln!("[cvm] CT = {}", hex::encode(ct));
 
     // RATCHET: copy source to a read-only snapshot.
     // The build runs against the snapshot, not the original directory.
@@ -268,7 +268,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     let build_workspace = tempdir()?;
     let frozen_source = build_workspace.join("src");
     copy_dir_readonly(&source_dir, &frozen_source)?;
-    eprintln!("[runcard] Source frozen: {}", frozen_source.display());
+    eprintln!("[cvm] Source frozen: {}", frozen_source.display());
 
     // Verify the frozen copy matches CT (paranoia: catch copy corruption)
     let ct_verify = compute_tree_hash(&frozen_source)?;
@@ -301,7 +301,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     if is_cargo && !custom_cmd {
         // Rust: fetch deps into a local vendor directory, then build offline.
         // This ensures all dependencies are captured in the hash.
-        eprintln!("[runcard] Fetching Rust dependencies...");
+        eprintln!("[cvm] Fetching Rust dependencies...");
         let fetch_status = std::process::Command::new("cargo")
             .args(["fetch"])
             .current_dir(&frozen_source)
@@ -314,12 +314,12 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
 
         // Hash the dependency cache
         let dt = compute_tree_hash(&dep_cache)?;
-        eprintln!("[runcard] DT (dependency hash): {}", hex::encode(dt));
+        eprintln!("[cvm] DT (dependency hash): {}", hex::encode(dt));
         // DT is included in the attestation output (see step 8)
     }
 
     // --- Step 4: Build (compilation phase) ---
-    eprintln!("[runcard] Building with: {cmd}");
+    eprintln!("[cvm] Building with: {cmd}");
 
     let status = std::process::Command::new("sh")
         .arg("-c")
@@ -344,13 +344,13 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
             hex::encode(ct_post)
         );
     }
-    eprintln!("[runcard] Ratchet verified: source unchanged after build");
+    eprintln!("[cvm] Ratchet verified: source unchanged after build");
 
     // Hash dependencies — LATTE L5: build deps are now measured.
     let dt: Option<[u8; 48]> = if dep_cache.exists() {
         match compute_tree_hash(&dep_cache) {
             Ok(h) if h != [0u8; 48] => {
-                eprintln!("[runcard] DT (dependencies): {}", hex::encode(h));
+                eprintln!("[cvm] DT (dependencies): {}", hex::encode(h));
                 Some(h)
             }
             _ => None,
@@ -360,7 +360,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     };
 
     // --- Step 4: Compute artifact hash ---
-    eprintln!("[runcard] Computing artifact hash (A)...");
+    eprintln!("[cvm] Computing artifact hash (A)...");
     let artifact_path = find_artifact(&build_output, &frozen_source);
     let (a, artifact_bytes): ([u8; 48], Vec<u8>) = if artifact_path.is_file() {
         let bytes = std::fs::read(&artifact_path)?;
@@ -371,14 +371,14 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
         let hash = compute_tree_hash(&build_output)?;
         (hash, Vec::new())
     };
-    eprintln!("[runcard] A = {}", hex::encode(a));
+    eprintln!("[cvm] A = {}", hex::encode(a));
 
     // --- Step 5: Compute Value X ---
     // CONSTITUTION: "Value X is a single number that represents 'this exact software.'"
     // LATTE: application layer identity, deterministic across platforms.
-    eprintln!("[runcard] Computing Value X...");
+    eprintln!("[cvm] Computing Value X...");
     let value_x = compute_tree_hash(&frozen_source)?;
-    eprintln!("[runcard] X = {}", hex::encode(value_x));
+    eprintln!("[cvm] X = {}", hex::encode(value_x));
 
     // --- Step 6: Collect TEE quote ---
     //
@@ -411,7 +411,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     // they set it before collecting the quote.
 
     let binding: [u8; 32] = eat.binding_bytes();
-    eprintln!("[runcard] EAT binding: {}", hex::encode(binding));
+    eprintln!("[cvm] EAT binding: {}", hex::encode(binding));
 
     let mut report_data = [0u8; 64];
     report_data[..32].copy_from_slice(&binding);
@@ -425,15 +425,15 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
         if tee_provider.platform() == quote::Platform::SevSnp && tee::tpm::tpm_available() {
             match tee::tpm::collect_tpm_attestation(&binding) {
                 Ok(att) => {
-                    eprintln!("[runcard] NitroTPM: {} ", att.method);
-                    eprintln!("[runcard] NitroTPM digest: {}", hex::encode(att.digest));
+                    eprintln!("[cvm] NitroTPM: {} ", att.method);
+                    eprintln!("[cvm] NitroTPM digest: {}", hex::encode(att.digest));
                     for (i, pcr) in att.pcrs.iter().enumerate() {
-                        eprintln!("[runcard]   PCR{i}: {}", hex::encode(pcr));
+                        eprintln!("[cvm]   PCR{i}: {}", hex::encode(pcr));
                     }
                     Some(att)
                 }
                 Err(e) => {
-                    eprintln!("[runcard] WARNING: NitroTPM collection failed: {e}");
+                    eprintln!("[cvm] WARNING: NitroTPM collection failed: {e}");
                     None
                 }
             }
@@ -441,10 +441,10 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
             None
         };
 
-    eprintln!("[runcard] Collecting TEE attestation...");
+    eprintln!("[cvm] Collecting TEE attestation...");
     let evidence = tee_provider.collect_evidence(&report_data)?;
     eprintln!(
-        "[runcard] Quote collected: {} bytes from {:?}",
+        "[cvm] Quote collected: {} bytes from {:?}",
         evidence.raw_quote.len(),
         evidence.platform
     );
@@ -455,9 +455,9 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     let platform_measurement =
         extract_platform_measurement(&evidence.raw_quote, &evidence.platform);
     if let Some(ref m) = platform_measurement {
-        eprintln!("[runcard] Platform measurement: {}", hex::encode(m));
+        eprintln!("[cvm] Platform measurement: {}", hex::encode(m));
     } else {
-        eprintln!("[runcard] WARNING: could not extract platform measurement from quote");
+        eprintln!("[cvm] WARNING: could not extract platform measurement from quote");
     }
 
     // Fill the EAT with the collected quote + measurement.
@@ -522,7 +522,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
                     "mrtd": platform_measurement.as_ref().map(|m| hex::encode(m)),
                     "confidential_space_claims": {
                         "hwmodel": "GCP_INTEL_TDX",
-                        "swname": "BOUNTYNET",
+                        "swname": "CVM",
                     }
                 }
             })
@@ -593,7 +593,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     let eat_path = output_dir.join("attestation.cbor");
     std::fs::write(&eat_path, &eat_cbor)?;
     eprintln!(
-        "[runcard] EAT (CBOR): {} bytes → {}",
+        "[cvm] EAT (CBOR): {} bytes → {}",
         eat_cbor.len(),
         eat_path.display()
     );
@@ -616,25 +616,25 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
     // Verifiers check: this attestation exists in the commit history.
     let log_committed = append_to_log(&output_dir, &att_path, &value_x);
     if log_committed {
-        eprintln!("[runcard] Transparency log: attestation committed to git");
+        eprintln!("[cvm] Transparency log: attestation committed to git");
     } else {
         eprintln!(
-            "[runcard] Transparency log: no git repo found (attestation written to disk only)"
+            "[cvm] Transparency log: no git repo found (attestation written to disk only)"
         );
     }
 
     eprintln!();
-    eprintln!("[runcard] === Attested Build Complete ===");
-    eprintln!("[runcard] CT (source):   {}", hex::encode(ct));
+    eprintln!("[cvm] === Attested Build Complete ===");
+    eprintln!("[cvm] CT (source):   {}", hex::encode(ct));
     if let Some(ref d) = dt {
-        eprintln!("[runcard] DT (deps):     {}", hex::encode(d));
+        eprintln!("[cvm] DT (deps):     {}", hex::encode(d));
     }
-    eprintln!("[runcard] A  (artifact): {}", hex::encode(a));
-    eprintln!("[runcard] X  (value x):  {}", hex::encode(value_x));
-    eprintln!("[runcard] Platform:      {:?}", evidence.platform);
-    eprintln!("[runcard] Output:        {}", output_dir.display());
+    eprintln!("[cvm] A  (artifact): {}", hex::encode(a));
+    eprintln!("[cvm] X  (value x):  {}", hex::encode(value_x));
+    eprintln!("[cvm] Platform:      {:?}", evidence.platform);
+    eprintln!("[cvm] Output:        {}", output_dir.display());
     eprintln!();
-    eprintln!("[runcard] This source became this artifact, inside genuine hardware.");
+    eprintln!("[cvm] This source became this artifact, inside genuine hardware.");
 
     Ok(())
 }
@@ -643,7 +643,7 @@ fn cmd_build(args: &[String]) -> anyhow::Result<()> {
 // VERIFY — anyone can run this, no TEE needed
 // ============================================================================
 
-/// `runcard check https://<domain>`
+/// `cvm check https://<domain>`
 ///
 /// Performs a full attested-TLS verification against a live enclave:
 ///
@@ -668,7 +668,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     let url = args
         .iter()
         .find(|a| !a.starts_with("--"))
-        .ok_or_else(|| anyhow::anyhow!("Usage: runcard check https://<domain>"))?;
+        .ok_or_else(|| anyhow::anyhow!("Usage: cvm check https://<domain>"))?;
 
     // Parse out host + port
     let stripped = url.strip_prefix("https://").unwrap_or(url.as_str());
@@ -680,8 +680,8 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(443)))
     .unwrap_or_else(|| (stripped.split('/').next().unwrap().to_string(), 443));
 
-    eprintln!("[runcard] === attested-TLS check ===");
-    eprintln!("[runcard] Target: {host}:{port}");
+    eprintln!("[cvm] === attested-TLS check ===");
+    eprintln!("[cvm] Target: {host}:{port}");
 
     // Install ring crypto provider if not already
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -719,7 +719,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
         .first()
         .ok_or_else(|| anyhow::anyhow!("empty peer cert chain"))?;
     let leaf_der = leaf.as_ref().to_vec();
-    eprintln!("[runcard] Leaf cert: {} bytes DER", leaf_der.len());
+    eprintln!("[cvm] Leaf cert: {} bytes DER", leaf_der.len());
 
     // Extract the CMW extension
     let eat_cbor = net::attested_tls::extract_eat_from_cert(&leaf_der)?.ok_or_else(|| {
@@ -728,14 +728,14 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
              this endpoint is not attested-TLS aware"
         )
     })?;
-    eprintln!("[runcard] EAT extension: {} bytes", eat_cbor.len());
+    eprintln!("[cvm] EAT extension: {} bytes", eat_cbor.len());
 
     // Decode
     let eat =
         eat::EatToken::from_cbor(&eat_cbor).map_err(|e| anyhow::anyhow!("EAT decode: {e}"))?;
-    eprintln!("[runcard] EAT profile: {}", eat.eat_profile);
-    eprintln!("[runcard] Platform:    {:?}", eat.platform_enum());
-    eprintln!("[runcard] Value X:     {}", hex::encode(eat.value_x));
+    eprintln!("[cvm] EAT profile: {}", eat.eat_profile);
+    eprintln!("[cvm] Platform:    {:?}", eat.platform_enum());
+    eprintln!("[cvm] Value X:     {}", hex::encode(eat.value_x));
 
     let platform = eat
         .platform_enum()
@@ -746,18 +746,18 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     // not the one the TEE produced — MITM or relay.
     let actual_spki_hash = net::attested_tls::spki_hash_of_cert(&leaf_der)?;
     if actual_spki_hash != eat.tls_spki_hash {
-        eprintln!("[runcard] SPKI binding:    FAIL");
+        eprintln!("[cvm] SPKI binding:    FAIL");
         eprintln!(
-            "[runcard]   eat claim:     {}",
+            "[cvm]   eat claim:     {}",
             hex::encode(eat.tls_spki_hash)
         );
         eprintln!(
-            "[runcard]   cert actual:   {}",
+            "[cvm]   cert actual:   {}",
             hex::encode(actual_spki_hash)
         );
         anyhow::bail!("attested-TLS channel binding failed");
     }
-    eprintln!("[runcard] SPKI binding:    PASS");
+    eprintln!("[cvm] SPKI binding:    PASS");
 
     // --- Check: platform quote signature chain + binding ---
     //
@@ -774,17 +774,17 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
     // whose report_data is a CBOR field, not a byte offset.
     let binding = eat.binding_bytes();
     let quote = &eat.platform_quote;
-    eprintln!("[runcard] Verifying platform quote (binding + signature)...");
+    eprintln!("[cvm] Verifying platform quote (binding + signature)...");
     match quote::verify::verify_platform_quote(platform, quote, &binding) {
         Ok(measurements) => {
-            eprintln!("[runcard] Quote binding:   PASS");
-            eprintln!("[runcard] Quote signature: PASS");
+            eprintln!("[cvm] Quote binding:   PASS");
+            eprintln!("[cvm] Quote signature: PASS");
             for (name, val) in &measurements {
-                eprintln!("[runcard]   {}: {}", name, hex::encode(val));
+                eprintln!("[cvm]   {}: {}", name, hex::encode(val));
             }
         }
         Err(e) => {
-            eprintln!("[runcard] Quote verify:    FAIL — {e}");
+            eprintln!("[cvm] Quote verify:    FAIL — {e}");
             anyhow::bail!("platform quote verification failed");
         }
     }
@@ -811,7 +811,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("decode previous: {e}"))?
         {
             eprintln!(
-                "[runcard] Chain step {depth}: verifying previous stage ({} bytes EAT)",
+                "[cvm] Chain step {depth}: verifying previous stage ({} bytes EAT)",
                 cursor.previous_attestation.len()
             );
 
@@ -835,7 +835,7 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
                 &prev_binding,
             ) {
                 Ok(_) => {
-                    eprintln!("[runcard]   ✓ step {depth} quote verifies (Value X stable)");
+                    eprintln!("[cvm]   ✓ step {depth} quote verifies (Value X stable)");
                 }
                 Err(e) => {
                     anyhow::bail!("chain step {depth}: quote signature failed — {e}");
@@ -848,9 +848,9 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
                 anyhow::bail!("chain too deep (>16 stages) — aborting walk");
             }
         }
-        eprintln!("[runcard] Chain:           PASS ({depth} stage(s) walked)");
+        eprintln!("[cvm] Chain:           PASS ({depth} stage(s) walked)");
     } else {
-        eprintln!("[runcard] Chain:           leaf only (no previous stage)");
+        eprintln!("[cvm] Chain:           leaf only (no previous stage)");
     }
 
     // --- CT log verification (LE path only) ---
@@ -874,40 +874,40 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
 
     match net::ct::extract_scts_from_cert(&leaf_der) {
         Ok(scts) if scts.is_empty() => {
-            eprintln!("[runcard] CT (SCTs):       none in cert (self-signed path — expected)");
+            eprintln!("[cvm] CT (SCTs):       none in cert (self-signed path — expected)");
         }
         Ok(scts) => match &issuer_der_opt {
             Some(issuer_der) => {
                 let report = net::ct::verify_scts_in_cert(&leaf_der, issuer_der)?;
                 if !report.failed.is_empty() {
-                    eprintln!("[runcard] CT (SCTs):       FAIL");
+                    eprintln!("[cvm] CT (SCTs):       FAIL");
                     for f in &report.failed {
-                        eprintln!("[runcard]   failed: {f}");
+                        eprintln!("[cvm]   failed: {f}");
                     }
                     anyhow::bail!("at least one SCT failed verification");
                 }
                 eprintln!(
-                    "[runcard] CT (SCTs):       {} verified, {} unpinned (of {} total)",
+                    "[cvm] CT (SCTs):       {} verified, {} unpinned (of {} total)",
                     report.verified.len(),
                     report.unpinned.len(),
                     scts.len()
                 );
                 for log in &report.verified {
-                    eprintln!("[runcard]   ✓ {log}");
+                    eprintln!("[cvm]   ✓ {log}");
                 }
                 if !report.any_verified() {
-                    eprintln!("[runcard]   WARNING: no SCTs from pinned logs — consider expanding net::ct::PINNED_LOGS");
+                    eprintln!("[cvm]   WARNING: no SCTs from pinned logs — consider expanding net::ct::PINNED_LOGS");
                 }
             }
             None => {
                 eprintln!(
-                    "[runcard] CT (SCTs):       {} present but issuer cert not in chain — cannot verify",
+                    "[cvm] CT (SCTs):       {} present but issuer cert not in chain — cannot verify",
                     scts.len()
                 );
             }
         },
         Err(e) => {
-            eprintln!("[runcard] CT (SCTs):       malformed extension: {e}");
+            eprintln!("[cvm] CT (SCTs):       malformed extension: {e}");
             anyhow::bail!("SCT extension parse error");
         }
     }
@@ -918,23 +918,23 @@ fn cmd_check(args: &[String]) -> anyhow::Result<()> {
         Ok(reg) if !reg.is_empty() => {
             let lookup = reg.lookup(&value_x_hex);
             eprintln!(
-                "[runcard] Registry ({} entries): {}",
+                "[cvm] Registry ({} entries): {}",
                 reg.len(),
                 registry::describe(&lookup)
             );
         }
         Ok(_) => {
-            eprintln!("[runcard] Registry: empty (no entries loaded)");
+            eprintln!("[cvm] Registry: empty (no entries loaded)");
         }
         Err(e) => {
-            eprintln!("[runcard] Registry: load failed — {e}");
+            eprintln!("[cvm] Registry: load failed — {e}");
         }
     }
 
     eprintln!();
-    eprintln!("[runcard] === Check Complete ===");
+    eprintln!("[cvm] === Check Complete ===");
     eprintln!(
-        "[runcard] {} is a genuine {:?} TEE running Value X {}",
+        "[cvm] {} is a genuine {:?} TEE running Value X {}",
         host,
         platform,
         &value_x_hex[..16]
@@ -1019,7 +1019,7 @@ fn cmd_verify(args: &[String]) -> anyhow::Result<()> {
     }
 
     let path =
-        att_path.ok_or_else(|| anyhow::anyhow!("Usage: runcard verify <attestation.json>"))?;
+        att_path.ok_or_else(|| anyhow::anyhow!("Usage: cvm verify <attestation.json>"))?;
     let att_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
 
     verify_attestation_json(&att_json, source_dir.as_deref(), artifact_path.as_deref())
@@ -1037,11 +1037,11 @@ fn verify_attestation_json(
     let binding_hex = att_json["binding"].as_str().unwrap_or("");
     let quote_hex = att_json["quote"].as_str().unwrap_or("");
 
-    eprintln!("[runcard] === Verification ===");
-    eprintln!("[runcard] Platform: {platform_str}");
-    eprintln!("[runcard] CT: {ct_hex}");
-    eprintln!("[runcard] A:  {a_hex}");
-    eprintln!("[runcard] X:  {x_hex}");
+    eprintln!("[cvm] === Verification ===");
+    eprintln!("[cvm] Platform: {platform_str}");
+    eprintln!("[cvm] CT: {ct_hex}");
+    eprintln!("[cvm] A:  {a_hex}");
+    eprintln!("[cvm] X:  {x_hex}");
 
     // Check 1: Verify binding hash
     let ct = hex::decode(ct_hex)?;
@@ -1054,12 +1054,12 @@ fn verify_attestation_json(
     let expected_binding = hex::encode(Sha256::digest(&binding_input));
 
     if expected_binding != binding_hex {
-        eprintln!("[runcard] FAIL: binding hash mismatch");
-        eprintln!("[runcard]   expected: {expected_binding}");
-        eprintln!("[runcard]   got:      {binding_hex}");
+        eprintln!("[cvm] FAIL: binding hash mismatch");
+        eprintln!("[cvm]   expected: {expected_binding}");
+        eprintln!("[cvm]   got:      {binding_hex}");
         std::process::exit(1);
     }
-    eprintln!("[runcard] Binding hash: PASS");
+    eprintln!("[cvm] Binding hash: PASS");
 
     // Check 2: Verify TEE quote
     let quote_bytes = hex::decode(quote_hex)?;
@@ -1069,9 +1069,9 @@ fn verify_attestation_json(
     // This is platform-specific — check report_data[0..32] == binding
     let report_data_ok = verify_quote_binding(&quote_bytes, &binding_bytes, platform_str);
     if report_data_ok {
-        eprintln!("[runcard] Quote binding: PASS");
+        eprintln!("[cvm] Quote binding: PASS");
     } else {
-        eprintln!("[runcard] Quote binding: FAIL (report_data doesn't match)");
+        eprintln!("[cvm] Quote binding: FAIL (report_data doesn't match)");
         std::process::exit(1);
     }
 
@@ -1091,26 +1091,26 @@ fn verify_attestation_json(
             if let Some(extracted) = extract_platform_measurement(&quote_bytes, &p) {
                 let extracted_hex = hex::encode(&extracted);
                 if extracted_hex == platform_measurement_hex {
-                    eprintln!("[runcard] Platform measurement: PASS — matches attestation");
+                    eprintln!("[cvm] Platform measurement: PASS — matches attestation");
                 } else {
-                    eprintln!("[runcard] Platform measurement: FAIL");
-                    eprintln!("[runcard]   attestation: {platform_measurement_hex}");
-                    eprintln!("[runcard]   extracted:   {extracted_hex}");
+                    eprintln!("[cvm] Platform measurement: FAIL");
+                    eprintln!("[cvm]   attestation: {platform_measurement_hex}");
+                    eprintln!("[cvm]   extracted:   {extracted_hex}");
                     std::process::exit(1);
                 }
             } else {
-                eprintln!("[runcard] Platform measurement: COULD NOT EXTRACT from quote");
+                eprintln!("[cvm] Platform measurement: COULD NOT EXTRACT from quote");
                 std::process::exit(1);
             }
         }
     } else {
-        eprintln!("[runcard] Platform measurement: NOT PRESENT in attestation");
-        eprintln!("[runcard] WARNING: cannot verify builder identity without platform measurement");
+        eprintln!("[cvm] Platform measurement: NOT PRESENT in attestation");
+        eprintln!("[cvm] WARNING: cannot verify builder identity without platform measurement");
     }
 
     // Check 4: Verify TEE quote signature chain
     // This is the cryptographic proof that the quote is from real hardware.
-    eprintln!("[runcard] Verifying TEE signature chain...");
+    eprintln!("[cvm] Verifying TEE signature chain...");
     let platform = match platform_str {
         "Tdx" => Some(quote::Platform::Tdx),
         "SevSnp" => Some(quote::Platform::SevSnp),
@@ -1125,31 +1125,31 @@ fn verify_attestation_json(
         };
         match quote::verify::verify_platform_quote(p, &quote_bytes, &binding_arr) {
             Ok(measurements) => {
-                eprintln!("[runcard] TEE signature chain: PASS");
+                eprintln!("[cvm] TEE signature chain: PASS");
                 for (name, val) in &measurements {
-                    eprintln!("[runcard]   {}: {}", name, hex::encode(val));
+                    eprintln!("[cvm]   {}: {}", name, hex::encode(val));
                 }
             }
             Err(e) => {
-                eprintln!("[runcard] TEE signature chain: FAIL — {e}");
+                eprintln!("[cvm] TEE signature chain: FAIL — {e}");
                 // Don't exit — the binding check above is the primary proof.
                 // Signature chain failure means we can't confirm it's real hardware,
                 // but the binding is still mathematically valid.
-                eprintln!("[runcard] WARNING: quote may not be from genuine hardware");
+                eprintln!("[cvm] WARNING: quote may not be from genuine hardware");
             }
         }
     }
 
     // Check 5: Optionally verify CT against source
     if let Some(dir) = source_dir {
-        eprintln!("[runcard] Verifying source hash against {}", dir.display());
+        eprintln!("[cvm] Verifying source hash against {}", dir.display());
         let local_ct = compute_tree_hash(dir)?;
         if hex::encode(local_ct) == ct_hex {
-            eprintln!("[runcard] Source hash: PASS — matches attestation");
+            eprintln!("[cvm] Source hash: PASS — matches attestation");
         } else {
-            eprintln!("[runcard] Source hash: FAIL");
-            eprintln!("[runcard]   attestation: {ct_hex}");
-            eprintln!("[runcard]   local:       {}", hex::encode(local_ct));
+            eprintln!("[cvm] Source hash: FAIL");
+            eprintln!("[cvm]   attestation: {ct_hex}");
+            eprintln!("[cvm]   local:       {}", hex::encode(local_ct));
             std::process::exit(1);
         }
     }
@@ -1157,15 +1157,15 @@ fn verify_attestation_json(
     // Check 6: Optionally verify A against artifact
     if let Some(path) = artifact_path {
         eprintln!(
-            "[runcard] Verifying artifact hash against {}",
+            "[cvm] Verifying artifact hash against {}",
             path.display()
         );
         let bytes = std::fs::read(path)?;
         let local_a = hex::encode(Sha384::digest(&bytes));
         if local_a == a_hex {
-            eprintln!("[runcard] Artifact hash: PASS — matches attestation");
+            eprintln!("[cvm] Artifact hash: PASS — matches attestation");
         } else {
-            eprintln!("[runcard] Artifact hash: FAIL");
+            eprintln!("[cvm] Artifact hash: FAIL");
             std::process::exit(1);
         }
     }
@@ -1179,22 +1179,22 @@ fn verify_attestation_json(
         Ok(reg) if !reg.is_empty() => {
             let lookup = reg.lookup(x_hex);
             eprintln!(
-                "[runcard] Registry ({} entries): {}",
+                "[cvm] Registry ({} entries): {}",
                 reg.len(),
                 registry::describe(&lookup)
             );
         }
         Ok(_) => {
-            eprintln!("[runcard] Registry: empty (no entries loaded)");
+            eprintln!("[cvm] Registry: empty (no entries loaded)");
         }
         Err(e) => {
-            eprintln!("[runcard] Registry: load failed — {e}");
+            eprintln!("[cvm] Registry: load failed — {e}");
         }
     }
 
     eprintln!();
-    eprintln!("[runcard] === Verification Complete ===");
-    eprintln!("[runcard] This artifact was built from this source inside genuine {platform_str} hardware.");
+    eprintln!("[cvm] === Verification Complete ===");
+    eprintln!("[cvm] This artifact was built from this source inside genuine {platform_str} hardware.");
 
     Ok(())
 }
@@ -1252,23 +1252,23 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
         stage0_path.ok_or_else(|| anyhow::anyhow!("--attestation <stage0.cbor> required"))?;
 
     // --- Step 1: confirm we're running inside a TEE ---
-    eprintln!("[runcard] === Stage 1: Attested Runtime ===");
+    eprintln!("[cvm] === Stage 1: Attested Runtime ===");
     let tee_provider = tee::detect::detect_tee()
         .map_err(|e| anyhow::anyhow!("Stage 1 must run inside a TEE: {e}"))?;
-    eprintln!("[runcard] TEE: {:?}", tee_provider.platform());
+    eprintln!("[cvm] TEE: {:?}", tee_provider.platform());
 
     // --- Step 2: load stage 0 EAT (CBOR, canonical format) ---
     let stage0_cbor = std::fs::read(&stage0_path)
         .map_err(|e| anyhow::anyhow!("read {}: {e}", stage0_path.display()))?;
     eprintln!(
-        "[runcard] Stage 0 EAT: {} bytes from {}",
+        "[cvm] Stage 0 EAT: {} bytes from {}",
         stage0_cbor.len(),
         stage0_path.display()
     );
     let stage0_eat = eat::EatToken::from_cbor(&stage0_cbor)
         .map_err(|e| anyhow::anyhow!("decode stage 0 EAT: {e}"))?;
     eprintln!(
-        "[runcard] Stage 0 Value X: {}",
+        "[cvm] Stage 0 Value X: {}",
         hex::encode(stage0_eat.value_x)
     );
 
@@ -1287,9 +1287,9 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
         &stage0_binding,
     ) {
         Ok(measurements) => {
-            eprintln!("[runcard] Stage 0 quote: PASS");
+            eprintln!("[cvm] Stage 0 quote: PASS");
             for (name, val) in &measurements {
-                eprintln!("[runcard]   {}: {}", name, hex::encode(val));
+                eprintln!("[cvm]   {}: {}", name, hex::encode(val));
             }
         }
         Err(e) => {
@@ -1308,7 +1308,7 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
             hex::encode(current_x)
         );
     }
-    eprintln!("[runcard] Value X: MATCHES stage 0");
+    eprintln!("[cvm] Value X: MATCHES stage 0");
 
     // --- Step 5: generate stage 1 TLS keypair ---
     // Its SPKI hash goes into the EAT, and the EAT's binding goes
@@ -1336,10 +1336,10 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     report_data[32..64].copy_from_slice(&current_x[..32]);
 
     // --- Step 7: collect stage 1 quote ---
-    eprintln!("[runcard] Collecting stage 1 quote...");
+    eprintln!("[cvm] Collecting stage 1 quote...");
     let evidence = tee_provider.collect_evidence(&report_data)?;
     eprintln!(
-        "[runcard] Stage 1 quote: {} bytes from {:?}",
+        "[cvm] Stage 1 quote: {} bytes from {:?}",
         evidence.raw_quote.len(),
         evidence.platform
     );
@@ -1375,7 +1375,7 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     let stage1_path = output_dir.join("stage1-attestation.cbor");
     std::fs::write(&stage1_path, &stage1_cbor)?;
     eprintln!(
-        "[runcard] Stage 1 EAT: {} bytes → {}",
+        "[cvm] Stage 1 EAT: {} bytes → {}",
         stage1_cbor.len(),
         stage1_path.display()
     );
@@ -1384,16 +1384,16 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     let domain = net::acme::domain_from_value_x(&current_x);
     let attested = net::attested_tls::make_attested_cert(&tls_kp, &domain, &stage1_cbor)?;
     eprintln!(
-        "[runcard] Attested-TLS cert built ({} bytes DER) — serving at {}",
+        "[cvm] Attested-TLS cert built ({} bytes DER) — serving at {}",
         attested.cert_der.len(),
         domain
     );
 
     // --- Step 10: serve ---
     eprintln!();
-    eprintln!("[runcard] === Stage 1 Verified ===");
-    eprintln!("[runcard] Chain: source → attested build → attested runtime");
-    eprintln!("[runcard] Value X: {}", hex::encode(current_x));
+    eprintln!("[cvm] === Stage 1 Verified ===");
+    eprintln!("[cvm] Chain: source → attested build → attested runtime");
+    eprintln!("[cvm] Value X: {}", hex::encode(current_x));
 
     let tls_state = Arc::new(net::tls::TlsState::new_with_pem(
         attested.cert_pem.as_bytes(),
@@ -1411,26 +1411,26 @@ async fn cmd_run(args: &[String]) -> anyhow::Result<()> {
     let state_clone = tls_state.clone();
     tokio::spawn(async move {
         if let Err(e) = net::tls::serve(state_clone, 443).await {
-            eprintln!("[runcard] TLS server error: {e}");
+            eprintln!("[cvm] TLS server error: {e}");
         }
     });
-    eprintln!("[runcard] Attested TLS server started on :443");
+    eprintln!("[cvm] Attested TLS server started on :443");
 
     // --- Step 11: execute workload if provided ---
     if let Some(cmd) = run_cmd {
-        eprintln!("[runcard] Running: {cmd}");
+        eprintln!("[cvm] Running: {cmd}");
         let status = std::process::Command::new("sh")
             .arg("-c")
             .arg(&cmd)
             .current_dir(&work_dir)
-            .env("BOUNTYNET_VALUE_X", hex::encode(current_x))
-            .env("BOUNTYNET_DOMAIN", &domain)
-            .env("BOUNTYNET_STAGE", "1")
+            .env("CVM_VALUE_X", hex::encode(current_x))
+            .env("CVM_DOMAIN", &domain)
+            .env("CVM_STAGE", "1")
             .status()?;
-        eprintln!("[runcard] Workload exited: {status}");
+        eprintln!("[cvm] Workload exited: {status}");
     } else {
-        eprintln!("[runcard] No --cmd provided. Serving attestation.");
-        eprintln!("[runcard] Press Ctrl+C to stop.");
+        eprintln!("[cvm] No --cmd provided. Serving attestation.");
+        eprintln!("[cvm] Press Ctrl+C to stop.");
         tokio::signal::ctrl_c().await?;
     }
 
@@ -1463,15 +1463,15 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
 
     let source_dir = source_dir.ok_or_else(|| anyhow::anyhow!("source directory required"))?;
 
-    eprintln!("[runcard] Enclave mode: build + serve in one process");
+    eprintln!("[cvm] Enclave mode: build + serve in one process");
 
     // Detect TEE once
     let tee_provider = tee::detect::detect_tee()?;
-    eprintln!("[runcard] TEE: {:?}", tee_provider.platform());
+    eprintln!("[cvm] TEE: {:?}", tee_provider.platform());
 
     // Compute CT
     let ct = compute_tree_hash(&source_dir)?;
-    eprintln!("[runcard] CT = {}", hex::encode(ct));
+    eprintln!("[cvm] CT = {}", hex::encode(ct));
 
     // Ratchet
     let build_workspace = tempdir()?;
@@ -1485,7 +1485,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     std::fs::create_dir_all(&dep_cache)?;
 
     let cmd = build_cmd.unwrap_or_else(|| detect_build_cmd(&frozen_source));
-    eprintln!("[runcard] Building: {cmd}");
+    eprintln!("[cvm] Building: {cmd}");
     let status = std::process::Command::new("sh")
         .arg("-c")
         .arg(&cmd)
@@ -1502,11 +1502,11 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     if ct != ct_post {
         anyhow::bail!("RATCHET VIOLATED");
     }
-    eprintln!("[runcard] Ratchet OK");
+    eprintln!("[cvm] Ratchet OK");
 
     // Compute Value X
     let value_x = compute_tree_hash(&frozen_source)?;
-    eprintln!("[runcard] X = {}", hex::encode(value_x));
+    eprintln!("[cvm] X = {}", hex::encode(value_x));
 
     // --- Attested TLS: generate TLS keypair BEFORE quote collection ---
     //
@@ -1517,10 +1517,10 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     // checks that sha256(leaf_cert_spki) matches eat.tls_spki_hash
     // knows that the cert *belongs* to the attested TEE — no MITM,
     // no relay. See net::attested_tls for the full chain description.
-    eprintln!("[runcard] Generating attested-TLS keypair inside enclave");
+    eprintln!("[cvm] Generating attested-TLS keypair inside enclave");
     let tls_kp = net::attested_tls::generate_keypair()?;
     let tls_spki_hash = net::attested_tls::spki_hash_of(&tls_kp);
-    eprintln!("[runcard] TLS SPKI sha256: {}", hex::encode(tls_spki_hash));
+    eprintln!("[cvm] TLS SPKI sha256: {}", hex::encode(tls_spki_hash));
 
     // Provisional EAT: same fields as the final one EXCEPT
     // platform_quote is empty. binding_bytes() is defined to exclude
@@ -1542,7 +1542,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     eat_partial.tls_spki_hash = tls_spki_hash;
 
     let binding: [u8; 32] = eat_partial.binding_bytes();
-    eprintln!("[runcard] EAT binding: {}", hex::encode(binding));
+    eprintln!("[cvm] EAT binding: {}", hex::encode(binding));
 
     let mut report_data = [0u8; 64];
     report_data[..32].copy_from_slice(&binding);
@@ -1550,7 +1550,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
 
     let evidence = tee_provider.collect_evidence(&report_data)?;
     eprintln!(
-        "[runcard] Quote: {} bytes from {:?}",
+        "[cvm] Quote: {} bytes from {:?}",
         evidence.raw_quote.len(),
         evidence.platform
     );
@@ -1653,19 +1653,19 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
     // This is what goes into the CMW cert extension AND what /eat serves.
     let eat_cbor = eat.to_cbor()?;
     eprintln!(
-        "[runcard] EAT (CBOR): {} bytes — embedded in attested-TLS cert + served at /eat",
+        "[cvm] EAT (CBOR): {} bytes — embedded in attested-TLS cert + served at /eat",
         eat_cbor.len()
     );
 
-    eprintln!("[runcard] === Enclave Ready ===");
-    eprintln!("[runcard] Value X: {}", hex::encode(value_x));
-    eprintln!("[runcard] Domain: {domain}");
+    eprintln!("[cvm] === Enclave Ready ===");
+    eprintln!("[cvm] Value X: {}", hex::encode(value_x));
+    eprintln!("[cvm] Domain: {domain}");
     if kms_private_key.is_some() {
-        eprintln!("[runcard] KMS: GET /kms-attestation (fresh doc) + POST /kms-unwrap");
+        eprintln!("[cvm] KMS: GET /kms-attestation (fresh doc) + POST /kms-unwrap");
     }
 
     // Try TLS on vsock first. If ring crypto fails (some enclaves), fall back to plain vsock.
-    eprintln!("[runcard] Parent should run: runcard proxy --cid <enclave-cid>");
+    eprintln!("[cvm] Parent should run: cvm proxy --cid <enclave-cid>");
 
     match rustls::crypto::ring::default_provider().install_default() {
         Ok(_) => {
@@ -1675,12 +1675,12 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
             let tls_config = {
                 let ac = net::attested_tls::make_attested_cert(&tls_kp, &domain, &eat_cbor)?;
                 eprintln!(
-                    "[runcard] attested-TLS cert built ({} bytes DER, EAT extension marked critical)",
+                    "[cvm] attested-TLS cert built ({} bytes DER, EAT extension marked critical)",
                     ac.cert_der.len()
                 );
                 net::tls::make_server_config(ac.cert_pem.as_bytes(), ac.key_pem.as_bytes())?
             };
-            eprintln!("[runcard] TLS on vsock (inside enclave)");
+            eprintln!("[cvm] TLS on vsock (inside enclave)");
             #[cfg(all(feature = "nitro", unix))]
             {
                 net::vsock::serve_tls_vsock(
@@ -1702,7 +1702,7 @@ fn cmd_enclave(args: &[String]) -> anyhow::Result<()> {
             }
         }
         Err(_) => {
-            eprintln!("[runcard] TLS crypto unavailable — serving plain HTTP on vsock");
+            eprintln!("[cvm] TLS crypto unavailable — serving plain HTTP on vsock");
             net::vsock::serve_vsock(&attestation_json)?;
         }
     }
@@ -1737,7 +1737,7 @@ fn cmd_run_sync(args: &[String]) -> anyhow::Result<()> {
     let attestation_path =
         attestation_path.ok_or_else(|| anyhow::anyhow!("--attestation <path> required"))?;
 
-    eprintln!("[runcard] Stage 1 (sync mode): self-verification");
+    eprintln!("[cvm] Stage 1 (sync mode): self-verification");
 
     // Load and verify attestation
     let att_contents = std::fs::read_to_string(&attestation_path)?;
@@ -1747,33 +1747,33 @@ fn cmd_run_sync(args: &[String]) -> anyhow::Result<()> {
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("missing value_x"))?;
 
-    eprintln!("[runcard] Stage 0 Value X: {}", &stage0_x[..24]);
+    eprintln!("[cvm] Stage 0 Value X: {}", &stage0_x[..24]);
 
     // Re-compute Value X
     let current_x = compute_tree_hash(&work_dir)?;
     let current_x_hex = hex::encode(current_x);
 
     if current_x_hex != stage0_x {
-        eprintln!("[runcard] FATAL: Value X mismatch");
-        eprintln!("[runcard]   stage 0: {stage0_x}");
-        eprintln!("[runcard]   current: {current_x_hex}");
+        eprintln!("[cvm] FATAL: Value X mismatch");
+        eprintln!("[cvm]   stage 0: {stage0_x}");
+        eprintln!("[cvm]   current: {current_x_hex}");
         std::process::exit(1);
     }
-    eprintln!("[runcard] Value X: MATCHES");
+    eprintln!("[cvm] Value X: MATCHES");
 
     // In sync mode (Nitro Enclave), serve the stage 0 attestation directly.
     // The stage 0 quote already contains the Nitro attestation with Value X bound.
     // Re-collecting a quote would require re-initializing the NSM device which
     // may fail if it's already been used by stage 0.
     let attestation_json = att_contents;
-    eprintln!("[runcard] === Stage 1 Verified (sync) ===");
-    eprintln!("[runcard] Value X: {current_x_hex}");
+    eprintln!("[cvm] === Stage 1 Verified (sync) ===");
+    eprintln!("[cvm] Value X: {current_x_hex}");
 
     // Serve via vsock (blocking)
     let domain = net::acme::domain_from_value_x(&current_x);
-    eprintln!("[runcard] Domain: {domain}");
+    eprintln!("[cvm] Domain: {domain}");
     eprintln!(
-        "[runcard] Serving via vsock on port {}",
+        "[cvm] Serving via vsock on port {}",
         net::vsock::VSOCK_PORT
     );
 
@@ -1848,10 +1848,10 @@ fn cmd_merge(args: &[String]) -> anyhow::Result<()> {
         }
     }
 
-    eprintln!("[runcard] All attestations agree:");
-    eprintln!("[runcard]   Value X: {first_x}");
-    eprintln!("[runcard]   CT:      {first_ct}");
-    eprintln!("[runcard]   A:       {first_a}");
+    eprintln!("[cvm] All attestations agree:");
+    eprintln!("[cvm]   Value X: {first_x}");
+    eprintln!("[cvm]   CT:      {first_ct}");
+    eprintln!("[cvm]   A:       {first_a}");
 
     // Build platform measurement map (Rcommon)
     let mut platform_measurements = serde_json::Map::new();
@@ -1871,7 +1871,7 @@ fn cmd_merge(args: &[String]) -> anyhow::Result<()> {
         }
         platforms_seen.push(platform.to_string());
         eprintln!(
-            "[runcard]   {platform}: measurement={}",
+            "[cvm]   {platform}: measurement={}",
             &measurement[..32.min(measurement.len())]
         );
     }
@@ -1896,17 +1896,17 @@ fn cmd_merge(args: &[String]) -> anyhow::Result<()> {
     std::fs::write(&output_path, serde_json::to_string_pretty(&merged)?)?;
 
     eprintln!();
-    eprintln!("[runcard] === Merged Attestation ===");
-    eprintln!("[runcard] Platforms: {}", platforms_seen.join(", "));
-    eprintln!("[runcard] Value X: {first_x}");
-    eprintln!("[runcard] Output: {}", output_path.display());
+    eprintln!("[cvm] === Merged Attestation ===");
+    eprintln!("[cvm] Platforms: {}", platforms_seen.join(", "));
+    eprintln!("[cvm] Value X: {first_x}");
+    eprintln!("[cvm] Output: {}", output_path.display());
     eprintln!();
     if platforms_seen.len() >= 2 {
         eprintln!(
-            "[runcard] Anytrust: {} independent TEE vendors attest the same Value X.",
+            "[cvm] Anytrust: {} independent TEE vendors attest the same Value X.",
             platforms_seen.len()
         );
-        eprintln!("[runcard] Trust at least one vendor → trust the build.");
+        eprintln!("[cvm] Trust at least one vendor → trust the build.");
     }
 
     Ok(())
@@ -1921,7 +1921,7 @@ fn detect_build_cmd(dir: &Path) -> String {
     if dir.join("Cargo.toml").exists() {
         "cargo build --release".into()
     } else if dir.join("Dockerfile").exists() {
-        "docker build -t bountynet-build .".into()
+        "docker build -t cvm-build .".into()
     } else if dir.join("package.json").exists() {
         "npm ci && npm run build".into()
     } else if dir.join("Makefile").exists() {
@@ -1929,7 +1929,7 @@ fn detect_build_cmd(dir: &Path) -> String {
     } else if dir.join("go.mod").exists() {
         "go build ./...".into()
     } else {
-        eprintln!("[runcard] WARNING: no build system detected, using 'make'");
+        eprintln!("[cvm] WARNING: no build system detected, using 'make'");
         "make".into()
     }
 }
@@ -2022,7 +2022,7 @@ fn append_to_log(output_dir: &Path, att_path: &Path, value_x: &[u8; 48]) -> bool
 
 /// Create a temporary directory for the build workspace.
 fn tempdir() -> anyhow::Result<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("bountynet-build-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("cvm-build-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir)?;
     }

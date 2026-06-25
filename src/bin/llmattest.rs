@@ -4,8 +4,8 @@
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client;
 use reqwest::header::CONTENT_TYPE;
-use runcards::llm_attested::{sha256_prefixed, EventActor};
-use runcards::llm_capture::{
+use cvm_agent::llm_attested::{sha256_prefixed, EventActor};
+use cvm_agent::llm_capture::{
     now_ms, signing_key_from_seed, CaptureReport, ParticipantConfig, ZERO_HASH,
 };
 use serde_json::Value;
@@ -33,7 +33,7 @@ struct RunConfig {
     signing_seed: Option<String>,
     openai_base_url: Option<String>,
     openai_api_key: Option<String>,
-    runcard_url: Option<String>,
+    cvm_url: Option<String>,
     local_capture_base_url: Option<String>,
     command: Vec<String>,
 }
@@ -58,7 +58,7 @@ impl RunConfig {
             signing_seed: None,
             openai_base_url: None,
             openai_api_key: None,
-            runcard_url: None,
+            cvm_url: None,
             local_capture_base_url: None,
             command: Vec::new(),
         };
@@ -74,9 +74,9 @@ struct ParticipantStatus {
     bootstrap_ok: bool,
     gateway_ok: bool,
     manifest_ok: bool,
-    runcard_ok: bool,
+    cvm_ok: bool,
     captured_events: u64,
-    runcard_json: Option<Value>,
+    cvm_json: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -229,7 +229,7 @@ fn start_capture(args: &[String]) -> Result<()> {
             "event_id": cfg.event_id,
             "team_id": cfg.team_id,
             "team_name": cfg.team_name,
-            "runcard_url": cfg.runcard_url,
+            "cvm_url": cfg.cvm_url,
             "capture_runtime": {
                 "mode": "llmattest_start",
                 "supervisor": "child_process",
@@ -251,14 +251,14 @@ fn start_capture(args: &[String]) -> Result<()> {
                 "bootstrap": before.bootstrap_ok,
                 "gateway_health": before.gateway_ok,
                 "gateway_manifest": before.manifest_ok,
-                "runcard": before.runcard_ok,
+                "cvm": before.cvm_ok,
                 "captured_events": before.captured_events
             },
             "checks_after": {
                 "bootstrap": after.bootstrap_ok,
                 "gateway_health": after.gateway_ok,
                 "gateway_manifest": after.manifest_ok,
-                "runcard": after.runcard_ok,
+                "cvm": after.cvm_ok,
                 "captured_events": after.captured_events
             },
             "smoke_event_id": smoke_event.as_ref().map(|event| event.event_id.clone()),
@@ -568,7 +568,7 @@ fn env_probe(
 fn tee_probe() -> Value {
     let mut evidence = Vec::new();
     for env_name in [
-        "RUNCARD_TEE_QUOTE_PATH",
+        "CVM_TEE_QUOTE_PATH",
         "LLM_ATTESTED_TEE_QUOTE_PATH",
         "TDX_REPORT_PATH",
         "SNP_REPORT_PATH",
@@ -661,7 +661,7 @@ fn init_config(args: &[String]) -> Result<()> {
             "event_id": cfg.event_id,
             "team_id": cfg.team_id,
             "team_name": cfg.team_name,
-            "runcard_url": cfg.runcard_url,
+            "cvm_url": cfg.cvm_url,
             "openai_compatible": {
                 "OPENAI_BASE_URL": cfg.openai_base_url(),
                 "OPENAI_API_KEY": cfg.team_api_key,
@@ -748,7 +748,7 @@ fn parse_status_args(args: &[String]) -> Result<StatusArgs> {
 }
 
 fn participant_status_document(status: &ParticipantStatus) -> Result<Value> {
-    let ready = status.bootstrap_ok && status.runcard_ok;
+    let ready = status.bootstrap_ok && status.cvm_ok;
     let local_companion = discover_local_companion(&status.config_path)?;
     let capability_probes = collect_capability_probes(status, local_companion.as_ref());
     let active_path = select_capture_path(&capability_probes, false);
@@ -756,7 +756,7 @@ fn participant_status_document(status: &ParticipantStatus) -> Result<Value> {
         .timeout(Duration::from_secs(3))
         .build()
         .context("build status document client")?;
-    let latest_event = latest_event_document(&client, status.runcard_json.as_ref());
+    let latest_event = latest_event_document(&client, status.cvm_json.as_ref());
     let actions = status_actions(status, local_companion.as_ref());
 
     Ok(serde_json::json!({
@@ -766,7 +766,7 @@ fn participant_status_document(status: &ParticipantStatus) -> Result<Value> {
         "event_id": status.cfg.event_id,
         "team_id": status.cfg.team_id,
         "team_name": status.cfg.team_name,
-        "runcard_url": status.cfg.runcard_url,
+        "cvm_url": status.cfg.cvm_url,
         "captured_events": status.captured_events,
         "active_capture_path": active_path,
         "capability_probes": capability_probes,
@@ -776,16 +776,16 @@ fn participant_status_document(status: &ParticipantStatus) -> Result<Value> {
             "bootstrap": status.bootstrap_ok,
             "gateway_health": status.gateway_ok,
             "gateway_manifest": status.manifest_ok,
-            "runcard": status.runcard_ok,
+            "cvm": status.cvm_ok,
             "local_companion": local_companion.is_some()
         },
         "live": {
-            "runcard_url": status.cfg.runcard_url,
-            "runcard_json_url": status.cfg.runcard_json_url,
-            "proof_url": status.runcard_json.as_ref().and_then(|card| card.pointer("/share/proof_url")).cloned(),
-            "receipts_url": status.runcard_json.as_ref().and_then(|card| card.pointer("/share/receipts_url")).cloned(),
-            "event_count": status.runcard_json.as_ref().and_then(|card| card.pointer("/integrity/event_count")).cloned().unwrap_or_else(|| serde_json::json!(status.captured_events)),
-            "latest_event_hash": status.runcard_json.as_ref().and_then(|card| card.pointer("/integrity/latest_event_hash")).cloned()
+            "cvm_url": status.cfg.cvm_url,
+            "cvm_json_url": status.cfg.cvm_json_url,
+            "proof_url": status.cvm_json.as_ref().and_then(|card| card.pointer("/share/proof_url")).cloned(),
+            "receipts_url": status.cvm_json.as_ref().and_then(|card| card.pointer("/share/receipts_url")).cloned(),
+            "event_count": status.cvm_json.as_ref().and_then(|card| card.pointer("/integrity/event_count")).cloned().unwrap_or_else(|| serde_json::json!(status.captured_events)),
+            "latest_event_hash": status.cvm_json.as_ref().and_then(|card| card.pointer("/integrity/latest_event_hash")).cloned()
         },
         "openai_compatible": {
             "OPENAI_BASE_URL": status.cfg.openai_base_url(),
@@ -822,7 +822,7 @@ fn smoke_capture(args: &[String]) -> Result<()> {
             "accepted": true,
             "event_id": event.event_id,
             "event_hash": event.event_hash().unwrap_or_else(|_| "sha256:unknown".to_string()),
-            "runcard_url": status.cfg.runcard_url,
+            "cvm_url": status.cfg.cvm_url,
             "captured_events": status.captured_events
         }))?
     );
@@ -833,7 +833,7 @@ fn emit_smoke_event(
     cfg: &ParticipantConfig,
     config_path: &std::path::Path,
     signing_seed: Option<&str>,
-) -> Result<runcards::llm_attested::ContestEvent> {
+) -> Result<cvm_agent::llm_attested::ContestEvent> {
     let now = now_ms();
     let mut subject = BTreeMap::new();
     subject.insert("provider".to_string(), "llmattest".to_string());
@@ -940,9 +940,9 @@ fn status_for_config(config_path: PathBuf, cfg: ParticipantConfig) -> Result<Par
         &format!("{}/healthz", cfg.gateway_base_url.trim_end_matches('/')),
     );
     let manifest_ok = get_success(&client, &cfg.gateway_manifest_url);
-    let runcard = get_json_value(&client, &cfg.runcard_json_url);
-    let runcard_ok = runcard.is_some();
-    let captured_events = runcard
+    let cvm = get_json_value(&client, &cfg.cvm_json_url);
+    let cvm_ok = cvm.is_some();
+    let captured_events = cvm
         .as_ref()
         .and_then(|value| value.get("stats"))
         .and_then(|value| value.get("captured_events"))
@@ -954,9 +954,9 @@ fn status_for_config(config_path: PathBuf, cfg: ParticipantConfig) -> Result<Par
         bootstrap_ok,
         gateway_ok,
         manifest_ok,
-        runcard_ok,
+        cvm_ok,
         captured_events,
-        runcard_json: runcard,
+        cvm_json: cvm,
     })
 }
 
@@ -988,11 +988,11 @@ fn discover_local_companion(config_path: &Path) -> Result<Option<LocalCompanionS
     }))
 }
 
-fn latest_event_document(client: &Client, runcard: Option<&Value>) -> Value {
-    let Some(card) = runcard else {
+fn latest_event_document(client: &Client, cvm: Option<&Value>) -> Value {
+    let Some(card) = cvm else {
         return serde_json::json!({
             "available": false,
-            "reason": "runcard unavailable"
+            "reason": "cvm unavailable"
         });
     };
     let latest_hash = card
@@ -1051,11 +1051,11 @@ fn status_actions(
             "next_step": "Check the join URL or self-hosted event service URL, then rerun llmattest status."
         }));
     }
-    if !status.runcard_ok {
+    if !status.cvm_ok {
         actions.push(serde_json::json!({
             "severity": "error",
-            "code": "runcard_unreachable",
-            "message": "The live runcard is unreachable.",
+            "code": "cvm_unreachable",
+            "message": "The live cvm is unreachable.",
             "next_step": "Regenerate the team payload from the join page or verify the event service is online."
         }));
     }
@@ -1079,7 +1079,7 @@ fn status_actions(
         actions.push(serde_json::json!({
             "severity": "info",
             "code": "no_events_yet",
-            "message": "No captured events are visible on the runcard yet.",
+            "message": "No captured events are visible on the cvm yet.",
             "next_step": "Run llmattest smoke or start an agent through llmattest start."
         }));
     }
@@ -1291,8 +1291,8 @@ fn run_command(cfg: RunConfig) -> Result<()> {
     if let Some(openai_api_key) = &cfg.openai_api_key {
         command.env("OPENAI_API_KEY", openai_api_key);
     }
-    if let Some(runcard_url) = &cfg.runcard_url {
-        command.env("LLM_ATTESTED_RUNCARD_URL", runcard_url);
+    if let Some(cvm_url) = &cfg.cvm_url {
+        command.env("LLM_ATTESTED_CVM_URL", cvm_url);
     }
     if let Some(local_capture_base_url) = &cfg.local_capture_base_url {
         command.env("LLM_ATTESTED_LOCAL_CAPTURE_URL", local_capture_base_url);
@@ -1380,7 +1380,7 @@ fn parse_run(
         signing_seed: None,
         openai_base_url: None,
         openai_api_key: None,
-        runcard_url: None,
+        cvm_url: None,
         local_capture_base_url: None,
         command: Vec::new(),
     };
@@ -1456,7 +1456,7 @@ fn apply_participant_config_to_run(participant: &ParticipantConfig, cfg: &mut Ru
     cfg.team_id = participant.team_id.clone();
     cfg.openai_base_url = Some(participant.openai_base_url());
     cfg.openai_api_key = Some(participant.team_api_key.clone());
-    cfg.runcard_url = Some(participant.runcard_url.clone());
+    cfg.cvm_url = Some(participant.cvm_url.clone());
 }
 
 fn parse_i64_arg(args: &[String], index: usize, name: &str) -> Result<i64> {
@@ -1493,7 +1493,7 @@ fn merge_i64_object(out: &mut BTreeMap<String, i64>, value: Option<&Value>) {
     }
 }
 
-fn post_event(url: &str, event: &runcards::llm_attested::ContestEvent) -> Result<()> {
+fn post_event(url: &str, event: &cvm_agent::llm_attested::ContestEvent) -> Result<()> {
     let body = event.to_cbor().context("encode event")?;
     let resp = Client::new()
         .post(url)

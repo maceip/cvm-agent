@@ -1,15 +1,11 @@
 [package]
-name = "runcards"
+name = "cvm-agent"
 version = "0.1.0"
 edition = "2021"
-description = "Attested builds: source → artifact, proven by hardware"
+description = "Proof before privilege for agents in confidential vms"
 
 [[bin]]
-name = "runcard"
-path = "src/main.rs"
-
-[[bin]]
-name = "bountynet"
+name = "cvm"
 path = "src/main.rs"
 
 [[bin]]

@@ -27,17 +27,17 @@
 //! On a real TEE instance:
 //!
 //! ```bash
-//! bountynet enclave ./target-source --cmd "cargo build --release"
+//! cvm enclave ./target-source --cmd "cargo build --release"
 //! # In another terminal, from the parent:
-//! bountynet proxy --cid <enclave-cid>
+//! cvm proxy --cid <enclave-cid>
 //! # From a third machine:
 //! curl --cacert /dev/null --insecure https://<valuex>.aeon.site/eat \
 //!   -H "Accept: application/eat+cbor" -o att.cbor
 //! # att.cbor should decode as an EatToken containing the raw quote.
 //! ```
 
-use runcards::eat::{BuildComponents, EatToken, EAT_PROFILE, EAT_VERSION};
-use runcards::quote::{verify, Platform};
+use cvm_agent::eat::{BuildComponents, EatToken, EAT_PROFILE, EAT_VERSION};
+use cvm_agent::quote::{verify, Platform};
 use serde_json::Value;
 use std::fs;
 

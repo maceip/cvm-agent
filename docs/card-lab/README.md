@@ -1,4 +1,4 @@
-# Runcard Card Lab
+# Cvm Card Lab
 
 This directory is a design sandbox for the LLM Attested run cards.
 
@@ -59,14 +59,14 @@ The hosted event service now exposes the Individual Signal concept as a plain
 SVG suitable for a GitHub profile README:
 
 ```md
-![Runcard signal](https://events.example/e/<event_id>/teams/<team_id>/runcard.signal.svg)
+![Cvm signal](https://events.example/e/<event_id>/teams/<team_id>/cvm.signal.svg)
 ```
 
 The companion JSON is available at the same path with `.json`:
 
 ```http
-GET /e/<event_id>/teams/<team_id>/runcard.signal.json
-GET /e/<event_id>/teams/<team_id>/runcard.signal.svg
+GET /e/<event_id>/teams/<team_id>/cvm.signal.json
+GET /e/<event_id>/teams/<team_id>/cvm.signal.svg
 ```
 
 For multi-agent teams, pass `?agent=<agent_session_id>` to pin the card to one
@@ -78,10 +78,10 @@ The SVG itself also carries a copy of the card document in a `<metadata>` block:
 
 ```xml
 <metadata
-  id="runcard-card-json"
+  id="cvm-card-json"
   data-content-type="application/json"
   data-sha256="sha256:...">
-  {"profile":"https://runcard.dev/llm-individual-signal/v1", ...}
+  {"profile":"https://cvm.dev/llm-individual-signal/v1", ...}
 </metadata>
 ```
 

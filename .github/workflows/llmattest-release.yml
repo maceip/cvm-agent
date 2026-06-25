@@ -97,7 +97,7 @@ jobs:
 
   tdx-attested-linux:
     name: TDX attested Linux binary
-    runs-on: [self-hosted, tdx, bountynet]
+    runs-on: [self-hosted, tdx, cvm]
     timeout-minutes: 45
 
     steps:
@@ -110,7 +110,7 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Prepare Rust toolchain and Runcard builder
+      - name: Prepare Rust toolchain and Cvm builder
         run: |
           set -euo pipefail
           if ! command -v cc >/dev/null 2>&1; then
@@ -128,23 +128,23 @@ jobs:
           if [ -z "$CARGO_BIN" ] && [ -x "$HOME/.cargo/bin/cargo" ]; then
             CARGO_BIN="$HOME/.cargo/bin/cargo"
           fi
-          RUNCARD_BIN="$(command -v runcard || command -v bountynet || true)"
+          CVM_BIN="$(command -v cvm || true)"
           if [ -z "$CARGO_BIN" ]; then
             echo "cargo was not found"
             exit 1
           fi
-          if [ -z "$RUNCARD_BIN" ]; then
-            echo "self-hosted TDX runner must provide runcard or bountynet"
+          if [ -z "$CVM_BIN" ]; then
+            echo "self-hosted TDX runner must provide cvm or cvm"
             exit 1
           fi
           "$CARGO_BIN" --version
-          "$RUNCARD_BIN" 2>&1 | head -4 || true
+          "$CVM_BIN" 2>&1 | head -4 || true
           echo "CARGO_BIN=$CARGO_BIN" >> "$GITHUB_ENV"
-          echo "RUNCARD_BIN=$RUNCARD_BIN" >> "$GITHUB_ENV"
+          echo "CVM_BIN=$CVM_BIN" >> "$GITHUB_ENV"
           echo "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" >> "$GITHUB_ENV"
           echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
 
-      - name: Build llmattest inside TDX and emit Runcard attestation
+      - name: Build llmattest inside TDX and emit Cvm attestation
         env:
           LLMATTEST_VERSION: ${{ github.event.inputs.version || github.sha }}
         run: |
@@ -152,7 +152,7 @@ jobs:
           WORK="$GITHUB_WORKSPACE/tdx-release"
           rm -rf "$WORK"
           mkdir -p "$WORK/attest-out" "$WORK/package"
-          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build . \
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$CVM_BIN" build . \
             --cmd "$CARGO_BIN build --release --bin llmattest" \
             --output "$WORK/attest-out"
           sudo chown -R "$(id -u):$(id -g)" "$WORK"

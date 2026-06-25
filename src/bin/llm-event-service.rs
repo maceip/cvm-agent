@@ -8,16 +8,16 @@
 
 use anyhow::{anyhow, Context, Result};
 use qrcodegen::{QrCode, QrCodeEcc};
-use runcards::http_service::{
+use cvm_agent::http_service::{
     rustls_acceptor_from_paths, serve_hyper, write_json, write_rate_limited, write_response,
     write_response_with_headers, BufferedResponse as HttpConn, CorsHeaders, HandlerFuture,
     HttpRequest, HttpServerConfig,
 };
-use runcards::llm_attested::{
+use cvm_agent::llm_attested::{
     build_capture_ra_claim, event_matches_capture_ra_claim, random_id, sha256_prefixed,
     ContestEvent, ContestManifest, TrustPolicy,
 };
-use runcards::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
+use cvm_agent::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -34,7 +34,7 @@ struct Config {
     gateway_base_url: String,
     issuer: String,
     registry_url: String,
-    runcard_receipt_url: String,
+    cvm_receipt_url: String,
     gateway_manifest_url: String,
     participant_release_base_url: String,
     accepted_tee_platforms: Vec<String>,
@@ -91,11 +91,11 @@ struct EventRecord {
     default_scoring_rule_hash: String,
     capture_methods: Vec<String>,
     #[serde(default)]
-    runcard_visibility: RuncardVisibility,
+    cvm_visibility: CvmVisibility,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct RuncardVisibility {
+struct CvmVisibility {
     show_capture_labels: bool,
     show_token_stats: bool,
     show_models: bool,
@@ -103,7 +103,7 @@ struct RuncardVisibility {
     show_agent_sessions: bool,
 }
 
-impl Default for RuncardVisibility {
+impl Default for CvmVisibility {
     fn default() -> Self {
         Self {
             show_capture_labels: true,
@@ -130,9 +130,9 @@ struct CreateEventRequest {
     event_type: Option<String>,
     gateway_base_url: Option<String>,
     gateway_manifest_url: Option<String>,
-    runcard_receipt_url: Option<String>,
+    cvm_receipt_url: Option<String>,
     scoring: Option<String>,
-    runcard_visibility: Option<RuncardVisibility>,
+    cvm_visibility: Option<CvmVisibility>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -271,7 +271,7 @@ async fn handle_connection(
         ("GET", "/.well-known/llm-attested/self-host.json") => {
             write_json(stream, 200, &self_host_document(&state.cfg)).await
         }
-        ("GET", "/.well-known/runcard/registry.json") => {
+        ("GET", "/.well-known/cvm/registry.json") => {
             write_json(stream, 200, &registry_document(&state.cfg)).await
         }
         ("GET", "/oembed") => oembed_document(stream, state, &req.path).await,
@@ -312,39 +312,39 @@ async fn handle_connection(
         _ if req.method == "GET"
             && parts.len() == 3
             && parts[0] == "e"
-            && parts[2] == "runcards.json" =>
+            && parts[2] == "cvms.json" =>
         {
-            event_runcards(stream, state, &parts[1]).await
+            event_cvms(stream, state, &parts[1]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard" =>
+            && parts[4] == "cvm" =>
         {
-            team_runcard_page(stream, state, &parts[1], &parts[3]).await
+            team_cvm_page(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.embed" =>
+            && parts[4] == "cvm.embed" =>
         {
-            team_runcard_embed_page(stream, state, &parts[1], &parts[3]).await
+            team_cvm_embed_page(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.svg" =>
+            && parts[4] == "cvm.svg" =>
         {
-            team_runcard_svg(stream, state, &parts[1], &parts[3]).await
+            team_cvm_svg(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.signal.svg" =>
+            && parts[4] == "cvm.signal.svg" =>
         {
             let agent = query_param(&req.path, "agent");
             team_individual_signal_svg(stream, state, &parts[1], &parts[3], agent).await
@@ -353,7 +353,7 @@ async fn handle_connection(
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.signal.json" =>
+            && parts[4] == "cvm.signal.json" =>
         {
             let agent = query_param(&req.path, "agent");
             team_individual_signal(stream, state, &parts[1], &parts[3], agent).await
@@ -362,41 +362,41 @@ async fn handle_connection(
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.qr.svg" =>
+            && parts[4] == "cvm.qr.svg" =>
         {
-            team_runcard_qr_svg(stream, state, &parts[1], &parts[3]).await
+            team_cvm_qr_svg(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.proof.json" =>
+            && parts[4] == "cvm.proof.json" =>
         {
-            team_runcard_proof(stream, state, &parts[1], &parts[3]).await
+            team_cvm_proof(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.receipts.json" =>
+            && parts[4] == "cvm.receipts.json" =>
         {
-            team_runcard_receipts(stream, state, &parts[1], &parts[3]).await
+            team_cvm_receipts(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.credential.json" =>
+            && parts[4] == "cvm.credential.json" =>
         {
-            team_runcard_credential(stream, state, &parts[1], &parts[3]).await
+            team_cvm_credential(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "GET"
             && parts.len() == 5
             && parts[0] == "e"
             && parts[2] == "teams"
-            && parts[4] == "runcard.json" =>
+            && parts[4] == "cvm.json" =>
         {
-            team_runcard(stream, state, &parts[1], &parts[3]).await
+            team_cvm(stream, state, &parts[1], &parts[3]).await
         }
         _ if req.method == "POST" && parts.len() == 3 && parts[0] == "e" && parts[2] == "teams" => {
             if !enforce_rate(
@@ -466,9 +466,9 @@ async fn create_event(stream: &mut HttpConn, state: Arc<AppState>, req: HttpRequ
         event_type,
         gateway_base_url,
         gateway_manifest_url,
-        runcard_receipt_url,
+        cvm_receipt_url,
         scoring,
-        runcard_visibility,
+        cvm_visibility,
     } = body;
 
     let event_id = random_id("hk");
@@ -476,7 +476,7 @@ async fn create_event(stream: &mut HttpConn, state: Arc<AppState>, req: HttpRequ
     let event_type = event_type.unwrap_or_else(|| "hackathon".to_string());
     let name = name.unwrap_or_else(|| {
         if event_type == "universal" {
-            format!("Universal Runcard {}", &event_id)
+            format!("Universal Cvm {}", &event_id)
         } else {
             format!("LLM Attested {}", &event_id)
         }
@@ -491,11 +491,11 @@ async fn create_event(stream: &mut HttpConn, state: Arc<AppState>, req: HttpRequ
             state.cfg.gateway_manifest_url.clone()
         }
     });
-    let runcard_receipt_url = runcard_receipt_url.unwrap_or_else(|| {
+    let cvm_receipt_url = cvm_receipt_url.unwrap_or_else(|| {
         if gateway_base_url_overridden {
-            format!("{gateway_base_url}/.well-known/runcard/receipt")
+            format!("{gateway_base_url}/.well-known/cvm/receipt")
         } else {
-            state.cfg.runcard_receipt_url.clone()
+            state.cfg.cvm_receipt_url.clone()
         }
     });
     let join_url = format!("{}/e/{event_id}/join", state.cfg.public_base_url);
@@ -525,7 +525,7 @@ async fn create_event(stream: &mut HttpConn, state: Arc<AppState>, req: HttpRequ
         participant_release_base_url: state.cfg.participant_release_base_url.clone(),
         trust_policy: TrustPolicy::self_hosted(
             state.cfg.accepted_tee_platforms.clone(),
-            runcard_receipt_url,
+            cvm_receipt_url,
             state.cfg.registry_url.clone(),
         ),
         default_scoring_rule_hash: sha256_prefixed(scoring.as_bytes()),
@@ -536,7 +536,7 @@ async fn create_event(stream: &mut HttpConn, state: Arc<AppState>, req: HttpRequ
             "hosted_workbench".to_string(),
             "provider_tls_notary".to_string(),
         ],
-        runcard_visibility: runcard_visibility.unwrap_or_default(),
+        cvm_visibility: cvm_visibility.unwrap_or_default(),
     };
 
     {
@@ -569,7 +569,7 @@ async fn create_event(stream: &mut HttpConn, state: Arc<AppState>, req: HttpRequ
             "participant_release_base_url": state.cfg.participant_release_base_url,
             "trust_policy": record.trust_policy,
             "capture_methods": record.capture_methods,
-            "runcard_visibility": record.runcard_visibility,
+            "cvm_visibility": record.cvm_visibility,
             "organizer_next_step": "Share join_url in your hackathon chat, website, or email.",
         }),
     )
@@ -763,25 +763,25 @@ async fn validate_attested_capture_event(
 
     let receipt_bytes = state
         .http
-        .get(&manifest.trust_policy.runcard_receipt_url)
+        .get(&manifest.trust_policy.cvm_receipt_url)
         .send()
         .await
         .with_context(|| {
             format!(
-                "fetch runcard receipt {}",
-                manifest.trust_policy.runcard_receipt_url
+                "fetch cvm receipt {}",
+                manifest.trust_policy.cvm_receipt_url
             )
         })?
         .error_for_status()
         .with_context(|| {
             format!(
-                "runcard receipt returned error {}",
-                manifest.trust_policy.runcard_receipt_url
+                "cvm receipt returned error {}",
+                manifest.trust_policy.cvm_receipt_url
             )
         })?
         .bytes()
         .await
-        .context("read runcard receipt")?;
+        .context("read cvm receipt")?;
     let claim = build_capture_ra_claim(
         &manifest,
         &manifest_hash,
@@ -839,7 +839,7 @@ async fn join_page(stream: &mut HttpConn, state: Arc<AppState>, event_id: &str) 
 <pre>llmattest start --team-payload team.json -- your-agent-command</pre>
 <h2>4. Keep status visible</h2>
 <pre>llmattest status --watch</pre>
-<p>The runcard shows capture method, assurance, enforcement, token stats, model stats, and proof links.</p>
+<p>The cvm shows capture method, assurance, enforcement, token stats, model stats, and proof links.</p>
 <p><a href="{dashboard}">Dashboard</a></p>
 </body>
 </html>"#,
@@ -873,7 +873,7 @@ async fn dashboard_page(stream: &mut HttpConn, state: Arc<AppState>, event_id: &
     let mut rows = String::new();
     for team in teams {
         rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td><a href=\"/e/{}/teams/{}/runcard.json\">runcard</a></td></tr>",
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td><a href=\"/e/{}/teams/{}/cvm.json\">cvm</a></td></tr>",
             html_escape(&team.team_name),
             html_escape(&team.team_id),
             team.created_at_ms,
@@ -892,7 +892,7 @@ async fn dashboard_page(stream: &mut HttpConn, state: Arc<AppState>, event_id: &
 <p>Gateway: {gateway}</p>
 <p>Captured events: {captured_count}</p>
 <table>
-<thead><tr><th>Team</th><th>ID</th><th>Created</th><th>Runcard</th></tr></thead>
+<thead><tr><th>Team</th><th>ID</th><th>Created</th><th>Cvm</th></tr></thead>
 <tbody>{rows}</tbody>
 </table>
 </body>
@@ -908,18 +908,18 @@ async fn dashboard_page(stream: &mut HttpConn, state: Arc<AppState>, event_id: &
 
 fn team_start_payload(event: &EventRecord, team: &TeamRecord) -> Value {
     let base = event.gateway_base_url.trim_end_matches('/');
-    let card_url = runcard_url(event, &team.team_id);
+    let card_url = cvm_url(event, &team.team_id);
     serde_json::json!({
         "event_id": event.event_id,
         "issuer": event.issuer,
         "team_id": team.team_id,
         "team_name": team.team_name,
         "team_api_key": team.api_key,
-        "runcard_url": card_url,
-        "runcard_json_url": format!("{card_url}.json"),
-        "runcard_embed_url": format!("{card_url}.embed"),
-        "runcard_image_url": format!("{card_url}.svg"),
-        "runcard_proof_url": format!("{card_url}.proof.json"),
+        "cvm_url": card_url,
+        "cvm_json_url": format!("{card_url}.json"),
+        "cvm_embed_url": format!("{card_url}.embed"),
+        "cvm_image_url": format!("{card_url}.svg"),
+        "cvm_proof_url": format!("{card_url}.proof.json"),
         "individual_signal_image_url": format!("{card_url}.signal.svg"),
         "individual_signal_json_url": format!("{card_url}.signal.json"),
         "gateway_base_url": event.gateway_base_url,
@@ -955,7 +955,7 @@ fn team_start_payload(event: &EventRecord, team: &TeamRecord) -> Value {
     })
 }
 
-async fn event_runcards(stream: &mut HttpConn, state: Arc<AppState>, event_id: &str) -> Result<()> {
+async fn event_cvms(stream: &mut HttpConn, state: Arc<AppState>, event_id: &str) -> Result<()> {
     let store = state.store.lock().await;
     let Some(event) = store.events.get(event_id).cloned() else {
         return write_json(
@@ -971,7 +971,7 @@ async fn event_runcards(stream: &mut HttpConn, state: Arc<AppState>, event_id: &
     let events = load_captured_events(&state.cfg.event_log_dir, event_id)?;
     let cards: Vec<Value> = teams
         .iter()
-        .map(|team| team_runcard_document(&event, team, &events))
+        .map(|team| team_cvm_document(&event, team, &events))
         .collect();
     write_json(
         stream,
@@ -979,23 +979,23 @@ async fn event_runcards(stream: &mut HttpConn, state: Arc<AppState>, event_id: &
         &serde_json::json!({
             "event_id": event.event_id,
             "name": event.name,
-            "runcards": cards
+            "cvms": cards
         }),
     )
     .await
 }
 
-struct RuncardContext {
+struct CvmContext {
     event: EventRecord,
     team: TeamRecord,
     events: Vec<ContestEvent>,
 }
 
-async fn load_runcard_context(
+async fn load_cvm_context(
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
-) -> Result<Option<RuncardContext>> {
+) -> Result<Option<CvmContext>> {
     let store = state.store.lock().await;
     let Some(event) = store.events.get(event_id).cloned() else {
         return Ok(None);
@@ -1011,45 +1011,45 @@ async fn load_runcard_context(
     drop(store);
 
     let events = load_captured_events(&state.cfg.event_log_dir, event_id)?;
-    Ok(Some(RuncardContext {
+    Ok(Some(CvmContext {
         event,
         team,
         events,
     }))
 }
 
-async fn team_runcard(
+async fn team_cvm(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_json(
             stream,
             404,
-            &serde_json::json!({"error": "runcard not found"}),
+            &serde_json::json!({"error": "cvm not found"}),
         )
         .await;
     };
     write_json(
         stream,
         200,
-        &team_runcard_document(&ctx.event, &ctx.team, &ctx.events),
+        &team_cvm_document(&ctx.event, &ctx.team, &ctx.events),
     )
     .await
 }
 
-async fn team_runcard_page(
+async fn team_cvm_page(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
-        return write_response(stream, 404, "text/html", b"runcard not found".to_vec()).await;
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
+        return write_response(stream, 404, "text/html", b"cvm not found".to_vec()).await;
     };
-    let card = team_runcard_document(&ctx.event, &ctx.team, &ctx.events);
+    let card = team_cvm_document(&ctx.event, &ctx.team, &ctx.events);
     let stats = &card["stats"];
     let labels = &card["labels"];
     let share = &card["share"];
@@ -1063,17 +1063,17 @@ async fn team_runcard_page(
     let embed_code = format!(
         r#"<iframe src="{embed_url}" width="420" height="520" loading="lazy" referrerpolicy="no-referrer"></iframe>"#
     );
-    let profile_markdown = format!("![Runcard signal]({signal_image_url})");
+    let profile_markdown = format!("![Cvm signal]({signal_image_url})");
     let body = format!(
         r#"<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{team} runcard</title>
+<title>{team} cvm</title>
 <meta name="description" content="{description}">
 <meta property="og:type" content="profile">
-<meta property="og:title" content="{team} runcard">
+<meta property="og:title" content="{team} cvm">
 <meta property="og:description" content="{description}">
 <meta property="og:url" content="{url}">
 <meta property="og:image" content="{image_url}">
@@ -1107,7 +1107,7 @@ textarea {{ width: 100%; min-height: 84px; margin-top: 12px; border: 1px solid #
 <h1>{team}</h1>
 <p>{headline}</p>
 </div>
-<img alt="QR code for this runcard" src="{qr_url}" width="220" height="220">
+<img alt="QR code for this cvm" src="{qr_url}" width="220" height="220">
 </section>
 <section class="proof">
   <div class="stat"><div class="label">Captured events</div><div class="value">{captured_events}</div></div>
@@ -1140,7 +1140,7 @@ textarea {{ width: 100%; min-height: 84px; margin-top: 12px; border: 1px solid #
         url = html_escape(url),
         image_url = html_escape(image_url),
         signal_image_url = html_escape(signal_image_url),
-        json_url = html_escape(share["json_url"].as_str().unwrap_or("runcard.json")),
+        json_url = html_escape(share["json_url"].as_str().unwrap_or("cvm.json")),
         credential_url = html_escape(credential_url),
         proof_url = html_escape(proof_url),
         embed_url = html_escape(embed_url),
@@ -1159,21 +1159,21 @@ textarea {{ width: 100%; min-height: 84px; margin-top: 12px; border: 1px solid #
         ),
         embed_code = html_escape(&embed_code),
         profile_markdown = html_escape(&profile_markdown),
-        json_ld = script_escape(&runcard_json_ld(&card)),
+        json_ld = script_escape(&cvm_json_ld(&card)),
     );
     write_response(stream, 200, "text/html", body.into_bytes()).await
 }
 
-async fn team_runcard_embed_page(
+async fn team_cvm_embed_page(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
-        return write_response(stream, 404, "text/html", b"runcard not found".to_vec()).await;
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
+        return write_response(stream, 404, "text/html", b"cvm not found".to_vec()).await;
     };
-    let card = team_runcard_document(&ctx.event, &ctx.team, &ctx.events);
+    let card = team_cvm_document(&ctx.event, &ctx.team, &ctx.events);
     let stats = &card["stats"];
     let labels = &card["labels"];
     let share = &card["share"];
@@ -1202,7 +1202,7 @@ footer {{ display: flex; justify-content: space-between; gap: 10px; align-items:
 </style>
 </head>
 <body>
-<a href="{url}" class="card" aria-label="Open runcard">
+<a href="{url}" class="card" aria-label="Open cvm">
 <header>
   <div class="eyebrow">{event_name}</div>
   <h1>{team}</h1>
@@ -1222,7 +1222,7 @@ footer {{ display: flex; justify-content: space-between; gap: 10px; align-items:
   <div class="small">{enforcement}</div>
 </section>
 <footer>
-  <span class="small">Live runcard</span>
+  <span class="small">Live cvm</span>
   <img alt="" src="{qr_url}" width="64" height="64">
 </footer>
 </a>
@@ -1255,17 +1255,17 @@ footer {{ display: flex; justify-content: space-between; gap: 10px; align-items:
     .await
 }
 
-async fn team_runcard_svg(
+async fn team_cvm_svg(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_response(stream, 404, "image/svg+xml", b"not found".to_vec()).await;
     };
-    let card = team_runcard_document(&ctx.event, &ctx.team, &ctx.events);
-    let svg = runcard_card_svg(&card)?;
+    let card = team_cvm_document(&ctx.event, &ctx.team, &ctx.events);
+    let svg = cvm_card_svg(&card)?;
     write_response_with_headers(
         stream,
         200,
@@ -1286,11 +1286,11 @@ async fn team_individual_signal(
     team_id: &str,
     agent: Option<String>,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_json(
             stream,
             404,
-            &serde_json::json!({"error": "runcard not found"}),
+            &serde_json::json!({"error": "cvm not found"}),
         )
         .await;
     };
@@ -1309,7 +1309,7 @@ async fn team_individual_signal_svg(
     team_id: &str,
     agent: Option<String>,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_response(stream, 404, "image/svg+xml", b"not found".to_vec()).await;
     };
     let card = individual_signal_document(&ctx.event, &ctx.team, &ctx.events, agent.as_deref());
@@ -1327,16 +1327,16 @@ async fn team_individual_signal_svg(
     .await
 }
 
-async fn team_runcard_qr_svg(
+async fn team_cvm_qr_svg(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_response(stream, 404, "image/svg+xml", b"not found".to_vec()).await;
     };
-    let url = runcard_url(&ctx.event, &ctx.team.team_id);
+    let url = cvm_url(&ctx.event, &ctx.team.team_id);
     let svg = qr_svg(&url, 8)?;
     write_response_with_headers(
         stream,
@@ -1351,70 +1351,70 @@ async fn team_runcard_qr_svg(
     .await
 }
 
-async fn team_runcard_proof(
+async fn team_cvm_proof(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_json(
             stream,
             404,
-            &serde_json::json!({"error": "runcard not found"}),
+            &serde_json::json!({"error": "cvm not found"}),
         )
         .await;
     };
-    let card = team_runcard_document(&ctx.event, &ctx.team, &ctx.events);
+    let card = team_cvm_document(&ctx.event, &ctx.team, &ctx.events);
     write_json(
         stream,
         200,
-        &runcard_proof_document(&ctx.event, &ctx.team, &ctx.events, &card),
+        &cvm_proof_document(&ctx.event, &ctx.team, &ctx.events, &card),
     )
     .await
 }
 
-async fn team_runcard_receipts(
+async fn team_cvm_receipts(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_json(
             stream,
             404,
-            &serde_json::json!({"error": "runcard not found"}),
+            &serde_json::json!({"error": "cvm not found"}),
         )
         .await;
     };
     write_json(
         stream,
         200,
-        &runcard_receipts_document(&ctx.event, &ctx.team, &ctx.events),
+        &cvm_receipts_document(&ctx.event, &ctx.team, &ctx.events),
     )
     .await
 }
 
-async fn team_runcard_credential(
+async fn team_cvm_credential(
     stream: &mut HttpConn,
     state: Arc<AppState>,
     event_id: &str,
     team_id: &str,
 ) -> Result<()> {
-    let Some(ctx) = load_runcard_context(state, event_id, team_id).await? else {
+    let Some(ctx) = load_cvm_context(state, event_id, team_id).await? else {
         return write_json(
             stream,
             404,
-            &serde_json::json!({"error": "runcard not found"}),
+            &serde_json::json!({"error": "cvm not found"}),
         )
         .await;
     };
-    let card = team_runcard_document(&ctx.event, &ctx.team, &ctx.events);
+    let card = team_cvm_document(&ctx.event, &ctx.team, &ctx.events);
     write_json(
         stream,
         200,
-        &runcard_credential_document(&ctx.event, &ctx.team, &ctx.events, &card),
+        &cvm_credential_document(&ctx.event, &ctx.team, &ctx.events, &card),
     )
     .await
 }
@@ -1432,7 +1432,7 @@ async fn oembed_document(
         return write_json(
             stream,
             400,
-            &serde_json::json!({"error": "url must belong to this runcard host"}),
+            &serde_json::json!({"error": "url must belong to this cvm host"}),
         )
         .await;
     }
@@ -1447,9 +1447,9 @@ async fn oembed_document(
         &serde_json::json!({
             "version": "1.0",
             "type": "rich",
-            "provider_name": "Runcard",
+            "provider_name": "Cvm",
             "provider_url": state.cfg.public_base_url,
-            "title": "LLM Attested runcard",
+            "title": "LLM Attested cvm",
             "html": html,
             "width": 420,
             "height": 520,
@@ -1459,7 +1459,7 @@ async fn oembed_document(
     .await
 }
 
-fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[ContestEvent]) -> Value {
+fn team_cvm_document(event: &EventRecord, team: &TeamRecord, events: &[ContestEvent]) -> Value {
     let mut team_events: Vec<&ContestEvent> = events
         .iter()
         .filter(|captured| captured.team_id == team.team_id)
@@ -1523,7 +1523,7 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
         serde_json::json!(team_events.len()),
     );
     stats.insert("llm_calls".to_string(), serde_json::json!(llm_calls));
-    if event.runcard_visibility.show_token_stats {
+    if event.cvm_visibility.show_token_stats {
         stats.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
         stats.insert(
             "min_call_tokens".to_string(),
@@ -1534,13 +1534,13 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
             serde_json::json!(max_tokens.unwrap_or(0)),
         );
     }
-    if event.runcard_visibility.show_models {
+    if event.cvm_visibility.show_models {
         stats.insert("models".to_string(), serde_json::json!(models));
     }
-    if event.runcard_visibility.show_providers {
+    if event.cvm_visibility.show_providers {
         stats.insert("providers".to_string(), serde_json::json!(providers));
     }
-    if event.runcard_visibility.show_agent_sessions {
+    if event.cvm_visibility.show_agent_sessions {
         stats.insert(
             "agent_sessions".to_string(),
             serde_json::json!(agent_sessions.len()),
@@ -1551,7 +1551,7 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
         );
     }
 
-    let labels = if event.runcard_visibility.show_capture_labels {
+    let labels = if event.cvm_visibility.show_capture_labels {
         serde_json::json!({
             "capture_methods": capture_methods,
             "assurance": assurance,
@@ -1565,7 +1565,7 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
 
     let event_hashes = event_hashes_for_team(&team_events);
     let event_log_root = event_log_root(&event_hashes);
-    let card_url = runcard_url(event, &team.team_id);
+    let card_url = cvm_url(event, &team.team_id);
     let json_url = format!("{card_url}.json");
     let embed_url = format!("{card_url}.embed");
     let image_url = format!("{card_url}.svg");
@@ -1581,13 +1581,13 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
 
     serde_json::json!({
         "version": 1,
-        "profile": "https://runcard.dev/llm-participant-runcard/v1",
+        "profile": "https://cvm.dev/llm-participant-cvm/v1",
         "event_id": event.event_id,
         "event_type": event.event_type,
         "event_name": event.name,
         "team_id": team.team_id,
         "team_name": team.team_name,
-        "visibility": event.runcard_visibility,
+        "visibility": event.cvm_visibility,
         "labels": labels,
         "stats": stats,
         "integrity": {
@@ -1597,7 +1597,7 @@ fn team_runcard_document(event: &EventRecord, team: &TeamRecord, events: &[Conte
             "proof_url": proof_url.clone(),
             "receipts_url": receipts_url.clone(),
             "trust_registry_url": event.trust_policy.registry_url.clone(),
-            "runcard_receipt_url": event.trust_policy.runcard_receipt_url.clone(),
+            "cvm_receipt_url": event.trust_policy.cvm_receipt_url.clone(),
             "gateway_manifest_url": event.gateway_manifest_url.clone()
         },
         "share": {
@@ -1704,7 +1704,7 @@ fn individual_signal_document(
 
     serde_json::json!({
         "version": 1,
-        "profile": "https://runcard.dev/llm-individual-signal/v1",
+        "profile": "https://cvm.dev/llm-individual-signal/v1",
         "event_id": event.event_id,
         "event_type": event.event_type,
         "event_name": event.name,
@@ -1737,9 +1737,9 @@ fn individual_signal_document(
             "event_log_root": event_log_root(&event_hashes),
             "event_count": event_hashes.len(),
             "latest_event_hash": event_hashes.last().cloned().unwrap_or_else(|| "sha256:empty".to_string()),
-            "team_runcard_url": runcard_url(event, &team.team_id),
+            "team_cvm_url": cvm_url(event, &team.team_id),
             "trust_registry_url": event.trust_policy.registry_url.clone(),
-            "runcard_receipt_url": event.trust_policy.runcard_receipt_url.clone(),
+            "cvm_receipt_url": event.trust_policy.cvm_receipt_url.clone(),
             "gateway_manifest_url": event.gateway_manifest_url.clone()
         },
         "share": {
@@ -1747,7 +1747,7 @@ fn individual_signal_document(
             "url": json_url,
             "json_url": json_url,
             "image_url": image_url,
-            "team_runcard_url": runcard_url(event, &team.team_id)
+            "team_cvm_url": cvm_url(event, &team.team_id)
         }
     })
 }
@@ -1840,9 +1840,9 @@ fn event_service_release_base(event: &EventRecord) -> String {
     format!("{}/downloads", service_base_url(event))
 }
 
-fn runcard_url(event: &EventRecord, team_id: &str) -> String {
+fn cvm_url(event: &EventRecord, team_id: &str) -> String {
     format!(
-        "{}/e/{}/teams/{}/runcard",
+        "{}/e/{}/teams/{}/cvm",
         service_base_url(event),
         event.event_id,
         team_id
@@ -1850,7 +1850,7 @@ fn runcard_url(event: &EventRecord, team_id: &str) -> String {
 }
 
 fn individual_signal_base_url(event: &EventRecord, team_id: &str) -> String {
-    format!("{}.signal", runcard_url(event, team_id))
+    format!("{}.signal", cvm_url(event, team_id))
 }
 
 fn with_optional_agent_query(url: &str, agent: Option<&str>) -> String {
@@ -1892,7 +1892,7 @@ fn team_events<'a>(team: &TeamRecord, events: &'a [ContestEvent]) -> Vec<&'a Con
     selected
 }
 
-fn runcard_proof_document(
+fn cvm_proof_document(
     event: &EventRecord,
     team: &TeamRecord,
     events: &[ContestEvent],
@@ -1903,32 +1903,32 @@ fn runcard_proof_document(
     let card_json = serde_json::to_vec(card).unwrap_or_default();
     serde_json::json!({
         "version": 1,
-        "profile": "https://runcard.dev/llm-runcard-proof/v1",
+        "profile": "https://cvm.dev/llm-cvm-proof/v1",
         "event_id": event.event_id,
         "event_type": event.event_type,
         "team_id": team.team_id,
-        "runcard_url": runcard_url(event, &team.team_id),
-        "runcard_json_hash": sha256_prefixed(&card_json),
+        "cvm_url": cvm_url(event, &team.team_id),
+        "cvm_json_hash": sha256_prefixed(&card_json),
         "event_log_root": event_log_root(&event_hashes),
         "event_hashes": event_hashes,
-        "receipts_url": format!("{}.receipts.json", runcard_url(event, &team.team_id)),
-        "credential_url": format!("{}.credential.json", runcard_url(event, &team.team_id)),
+        "receipts_url": format!("{}.receipts.json", cvm_url(event, &team.team_id)),
+        "credential_url": format!("{}.credential.json", cvm_url(event, &team.team_id)),
         "trust": {
             "issuer": event.issuer,
             "registry_url": event.trust_policy.registry_url,
             "gateway_manifest_url": event.gateway_manifest_url,
-            "runcard_receipt_url": event.trust_policy.runcard_receipt_url,
+            "cvm_receipt_url": event.trust_policy.cvm_receipt_url,
             "verifier_profile": event.trust_policy.verifier_profile,
             "accepted_tee_platforms": event.trust_policy.accepted_tee_platforms
         },
         "verification": {
             "mode": "recompute-card-from-signed-events",
-            "note": "Fetch receipts_url, verify each ContestEvent signature against the gateway manifest, recompute stats, then compare runcard_json_hash and event_log_root."
+            "note": "Fetch receipts_url, verify each ContestEvent signature against the gateway manifest, recompute stats, then compare cvm_json_hash and event_log_root."
         }
     })
 }
 
-fn runcard_receipts_document(
+fn cvm_receipts_document(
     event: &EventRecord,
     team: &TeamRecord,
     events: &[ContestEvent],
@@ -1952,7 +1952,7 @@ fn runcard_receipts_document(
         .collect();
     serde_json::json!({
         "version": 1,
-        "profile": "https://runcard.dev/llm-runcard-receipts/v1",
+        "profile": "https://cvm.dev/llm-cvm-receipts/v1",
         "event_id": event.event_id,
         "team_id": team.team_id,
         "event_log_root": event_log_root(&hashes),
@@ -1960,7 +1960,7 @@ fn runcard_receipts_document(
     })
 }
 
-fn runcard_credential_document(
+fn cvm_credential_document(
     event: &EventRecord,
     team: &TeamRecord,
     events: &[ContestEvent],
@@ -1969,19 +1969,19 @@ fn runcard_credential_document(
     let selected = team_events(team, events);
     let event_hashes = event_hashes_for_team(&selected);
     let event_log_root = event_log_root(&event_hashes);
-    let card_url = runcard_url(event, &team.team_id);
+    let card_url = cvm_url(event, &team.team_id);
     serde_json::json!({
         "@context": [
             "https://www.w3.org/ns/credentials/v2",
             "https://purl.imsglobal.org/spec/ob/v3p0/context-3.0.3.json"
         ],
         "id": format!("{card_url}.credential.json"),
-        "type": ["VerifiableCredential", "OpenBadgeCredential", "RuncardCredential"],
-        "name": format!("{} LLM Attested Runcard", team.team_name),
+        "type": ["VerifiableCredential", "OpenBadgeCredential", "CvmCredential"],
+        "name": format!("{} LLM Attested Cvm", team.team_name),
         "description": card["share"]["headline"],
         "issuer": {
             "id": event.issuer,
-            "name": "Runcard LLM Attested"
+            "name": "Cvm LLM Attested"
         },
         "validFrom": now_ms(),
         "credentialSubject": {
@@ -1996,18 +1996,18 @@ fn runcard_credential_document(
                 "id": format!("{}/achievement/llm-attested-capture", service_base_url(event)),
                 "type": ["Achievement"],
                 "name": "LLM Attested Capture",
-                "description": "Captured LLM and agent activity represented by signed runcard receipts."
+                "description": "Captured LLM and agent activity represented by signed cvm receipts."
             },
             "result": card["stats"],
             "evidence": [{
                 "id": format!("{card_url}.proof.json"),
                 "type": ["Evidence"],
-                "name": "Runcard proof bundle",
+                "name": "Cvm proof bundle",
                 "eventLogRoot": event_log_root
             }]
         },
         "proof": {
-            "type": "RuncardEventReceiptProof2026",
+            "type": "CvmEventReceiptProof2026",
             "proofPurpose": "assertionMethod",
             "verificationMethod": event.gateway_manifest_url,
             "proofValue": event_log_root,
@@ -2016,11 +2016,11 @@ fn runcard_credential_document(
     })
 }
 
-fn runcard_json_ld(card: &Value) -> String {
+fn cvm_json_ld(card: &Value) -> String {
     serde_json::to_string(&serde_json::json!({
         "@context": "https://schema.org",
         "@type": "CreativeWork",
-        "name": format!("{} runcard", card["team_name"].as_str().unwrap_or("Participant")),
+        "name": format!("{} cvm", card["team_name"].as_str().unwrap_or("Participant")),
         "description": card["share"]["headline"],
         "url": card["share"]["url"],
         "encoding": [{
@@ -2050,19 +2050,19 @@ fn compact_counts(value: &Value) -> String {
         .join(", ")
 }
 
-fn runcard_card_svg(card: &Value) -> Result<String> {
+fn cvm_card_svg(card: &Value) -> Result<String> {
     let share = &card["share"];
     let stats = &card["stats"];
     let labels = &card["labels"];
     let metadata = svg_card_metadata(card)?;
     let url = share["url"].as_str().unwrap_or("");
     let qr = QrCode::encode_text(url, QrCodeEcc::Medium)
-        .map_err(|e| anyhow!("encode runcard qr: {e:?}"))?;
+        .map_err(|e| anyhow!("encode cvm qr: {e:?}"))?;
     let qr_path = qr_path_data(&qr, 4);
     let qr_size = (qr.size() + 8).max(1) as f64;
     let qr_scale = 172.0 / qr_size;
     Ok(format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{team} runcard">
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{team} cvm">
 {metadata}
 <rect width="1200" height="630" fill="#f6f7f2"/>
 <rect x="52" y="52" width="1096" height="526" rx="18" fill="#fbfcf7" stroke="#cfd5c2" stroke-width="2"/>
@@ -2161,11 +2161,11 @@ fn individual_signal_card_svg(card: &Value) -> Result<String> {
         88,
     );
     Ok(format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{name} individual signal runcard">
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="{name} individual signal cvm">
 {metadata}
 <rect width="1200" height="630" fill="#06201c"/>
 <rect x="44" y="42" width="1112" height="546" rx="24" fill="#092b25" stroke="#d8fff6" stroke-width="2"/>
-<text x="76" y="104" fill="#59ffd6" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="900">LIVE RUNCARD</text>
+<text x="76" y="104" fill="#59ffd6" font-family="Inter, system-ui, sans-serif" font-size="26" font-weight="900">LIVE CVM</text>
 <text x="76" y="174" fill="#f7fff4" font-family="Inter, system-ui, sans-serif" font-size="74" font-weight="950">{name}</text>
 <rect x="756" y="84" width="128" height="34" rx="17" fill="{status_fill}"/>
 <text x="820" y="107" fill="#06201c" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="800" text-anchor="middle">{status}</text>
@@ -2208,9 +2208,9 @@ fn svg_card_metadata(card: &Value) -> Result<String> {
     let metadata_hash = sha256_prefixed(metadata_json.as_bytes());
     let profile = card["profile"]
         .as_str()
-        .unwrap_or("https://runcard.dev/runcard/v1");
+        .unwrap_or("https://cvm.dev/cvm/v1");
     Ok(format!(
-        r#"<metadata id="runcard-card-json" data-content-type="application/json" data-profile="{profile}" data-sha256="{metadata_hash}">{metadata_json}</metadata>"#,
+        r#"<metadata id="cvm-card-json" data-content-type="application/json" data-profile="{profile}" data-sha256="{metadata_hash}">{metadata_json}</metadata>"#,
         profile = xml_escape(profile),
         metadata_hash = xml_escape(&metadata_hash),
         metadata_json = xml_escape(&metadata_json)
@@ -2219,7 +2219,7 @@ fn svg_card_metadata(card: &Value) -> Result<String> {
 
 fn qr_svg(text: &str, module_px: i32) -> Result<String> {
     let qr = QrCode::encode_text(text, QrCodeEcc::Medium)
-        .map_err(|e| anyhow!("encode runcard qr: {e:?}"))?;
+        .map_err(|e| anyhow!("encode cvm qr: {e:?}"))?;
     let border = 4;
     let size = qr.size() + border * 2;
     let width = size * module_px;
@@ -2318,7 +2318,7 @@ fn percent_decode(value: &str) -> String {
 fn event_bootstrap_document(event: &EventRecord) -> Value {
     serde_json::json!({
         "version": 1,
-        "profile": "https://runcard.dev/llm-self-host-bootstrap/v1",
+        "profile": "https://cvm.dev/llm-self-host-bootstrap/v1",
         "issuer": event.issuer,
         "event_id": event.event_id,
         "name": event.name,
@@ -2336,7 +2336,7 @@ fn event_bootstrap_document(event: &EventRecord) -> Value {
 fn self_host_document(cfg: &Config) -> Value {
     serde_json::json!({
         "version": 1,
-        "profile": "https://runcard.dev/llm-self-host-instance/v1",
+        "profile": "https://cvm.dev/llm-self-host-instance/v1",
         "issuer": cfg.issuer,
         "public_base_url": cfg.public_base_url,
         "gateway_base_url": cfg.gateway_base_url,
@@ -2350,7 +2350,7 @@ fn self_host_document(cfg: &Config) -> Value {
         },
         "trust_policy": TrustPolicy::self_hosted(
             cfg.accepted_tee_platforms.clone(),
-            cfg.runcard_receipt_url.clone(),
+            cfg.cvm_receipt_url.clone(),
             cfg.registry_url.clone(),
         )
     })
@@ -2359,11 +2359,11 @@ fn self_host_document(cfg: &Config) -> Value {
 fn registry_document(cfg: &Config) -> Value {
     serde_json::json!({
         "version": 1,
-        "profile": "https://runcard.dev/runcard-trust-registry/v1",
+        "profile": "https://cvm.dev/cvm-trust-registry/v1",
         "issuer": cfg.issuer,
-        "verifier_profile": "runcard-eat-v2",
+        "verifier_profile": "cvm-eat-v2",
         "accepted_tee_platforms": cfg.accepted_tee_platforms,
-        "runcard_receipt_url": cfg.runcard_receipt_url,
+        "cvm_receipt_url": cfg.cvm_receipt_url,
         "gateway_manifest_url": cfg.gateway_manifest_url
     })
 }
@@ -2382,7 +2382,7 @@ fn home_page(cfg: &Config) -> Vec<u8> {
 <h1>LLM Attested Events</h1>
 <p>Runtime: <strong>{runtime_label}</strong></p>
 <p><a href="/.well-known/llm-attested/self-host.json">Self-host document</a></p>
-<p><a href="/.well-known/runcard/registry.json">Trust registry</a></p>
+<p><a href="/.well-known/cvm/registry.json">Trust registry</a></p>
 <p>Create an event:</p>
 <pre>curl -sS -X POST /events -H 'content-type: application/json' --data '{{"name":"My Hackathon"}}'</pre>
 </body>
@@ -2476,7 +2476,7 @@ fn parse_args() -> Result<Config> {
     let mut gateway_base_url = "http://127.0.0.1:8088".to_string();
     let mut issuer = "self-hosted".to_string();
     let mut registry_url: Option<String> = None;
-    let mut runcard_receipt_url: Option<String> = None;
+    let mut cvm_receipt_url: Option<String> = None;
     let mut gateway_manifest_url: Option<String> = None;
     let mut participant_release_base_url: Option<String> = None;
     let mut accepted_tee_platforms = vec![
@@ -2524,9 +2524,9 @@ fn parse_args() -> Result<Config> {
                 i += 1;
                 registry_url = Some(arg_value(&args, i, "--registry-url")?);
             }
-            "--runcard-receipt-url" => {
+            "--cvm-receipt-url" => {
                 i += 1;
-                runcard_receipt_url = Some(arg_value(&args, i, "--runcard-receipt-url")?);
+                cvm_receipt_url = Some(arg_value(&args, i, "--cvm-receipt-url")?);
             }
             "--gateway-manifest-url" => {
                 i += 1;
@@ -2599,23 +2599,23 @@ fn parse_args() -> Result<Config> {
     let public_base_url = public_base_url.trim_end_matches('/').to_string();
     let gateway_base_url = gateway_base_url.trim_end_matches('/').to_string();
     let registry_url = registry_url
-        .unwrap_or_else(|| format!("{public_base_url}/.well-known/runcard/registry.json"));
-    let runcard_receipt_url = runcard_receipt_url
-        .unwrap_or_else(|| format!("{gateway_base_url}/.well-known/runcard/receipt"));
+        .unwrap_or_else(|| format!("{public_base_url}/.well-known/cvm/registry.json"));
+    let cvm_receipt_url = cvm_receipt_url
+        .unwrap_or_else(|| format!("{gateway_base_url}/.well-known/cvm/receipt"));
     let gateway_manifest_url = gateway_manifest_url
         .unwrap_or_else(|| format!("{gateway_base_url}/.well-known/llm-attested/manifest.cbor"));
     let participant_release_base_url = participant_release_base_url
         .unwrap_or_else(|| format!("{public_base_url}/downloads"))
         .trim_end_matches('/')
         .to_string();
-    let runtime_stage = std::env::var("BOUNTYNET_STAGE").unwrap_or_default();
+    let runtime_stage = std::env::var("CVM_STAGE").unwrap_or_default();
     let runtime_mode = if runtime_stage == "1" {
         "tee".to_string()
     } else {
         "plain".to_string()
     };
-    let runtime_value_x = std::env::var("BOUNTYNET_VALUE_X").ok();
-    let runtime_domain = std::env::var("BOUNTYNET_DOMAIN").ok();
+    let runtime_value_x = std::env::var("CVM_VALUE_X").ok();
+    let runtime_domain = std::env::var("CVM_DOMAIN").ok();
 
     Ok(Config {
         listen,
@@ -2623,7 +2623,7 @@ fn parse_args() -> Result<Config> {
         gateway_base_url,
         issuer,
         registry_url,
-        runcard_receipt_url,
+        cvm_receipt_url,
         gateway_manifest_url,
         participant_release_base_url,
         accepted_tee_platforms,
@@ -2670,8 +2670,8 @@ fn print_usage() {
     eprintln!("  --listen 127.0.0.1:8080");
     eprintln!("  --gateway-base-url https://gateway.example");
     eprintln!("  --issuer https://events.example");
-    eprintln!("  --registry-url https://events.example/.well-known/runcard/registry.json");
-    eprintln!("  --runcard-receipt-url https://gateway.example/.well-known/runcard/receipt");
+    eprintln!("  --registry-url https://events.example/.well-known/cvm/registry.json");
+    eprintln!("  --cvm-receipt-url https://gateway.example/.well-known/cvm/receipt");
     eprintln!(
         "  --gateway-manifest-url https://gateway.example/.well-known/llm-attested/manifest.cbor"
     );

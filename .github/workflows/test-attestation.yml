@@ -5,7 +5,7 @@ on:
 
 jobs:
   attest-test:
-    runs-on: [self-hosted, bountynet, tdx]
+    runs-on: [self-hosted, cvm, tdx]
     steps:
       - name: Repair runner workspace ownership
         run: |
@@ -36,13 +36,13 @@ jobs:
           ls -la /dev/tdx* /dev/sev* /dev/nsm 2>/dev/null || echo "No TEE devices visible (expected in container)"
           echo ""
           echo "=== Environment ==="
-          echo "BOUNTYNET_VALUE_X=${BOUNTYNET_VALUE_X:-not set}"
-          echo "BOUNTYNET_ATTEST_PORT=${BOUNTYNET_ATTEST_PORT:-not set}"
+          echo "CVM_VALUE_X=${CVM_VALUE_X:-not set}"
+          echo "CVM_ATTEST_PORT=${CVM_ATTEST_PORT:-not set}"
 
       - name: Query attestation endpoint
         run: |
           set -euo pipefail
-          ATTEST_PORT="${BOUNTYNET_ATTEST_PORT:-9384}"
+          ATTEST_PORT="${CVM_ATTEST_PORT:-9384}"
           echo "=== Health Check ==="
           if ! curl -sf "http://localhost:${ATTEST_PORT}/health"; then
             echo "No pre-existing runner attestation endpoint on port ${ATTEST_PORT}."

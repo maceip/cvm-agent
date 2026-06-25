@@ -18,11 +18,11 @@
 //! - `spki_hash_of_cert(peer_cert)` equals the producer-side
 //!   `spki_hash_of(keypair)`, end-to-end across a real network socket.
 
-use runcards::eat::{BuildComponents, EatToken};
-use runcards::net::attested_tls::{
+use cvm_agent::eat::{BuildComponents, EatToken};
+use cvm_agent::net::attested_tls::{
     extract_eat_from_cert, generate_keypair, make_attested_cert, spki_hash_of, spki_hash_of_cert,
 };
-use runcards::quote::Platform;
+use cvm_agent::quote::Platform;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;

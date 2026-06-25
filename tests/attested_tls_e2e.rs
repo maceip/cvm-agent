@@ -13,14 +13,14 @@
 //! The only thing missing from a real hardware run is the platform
 //! quote signature chain — the "quote" here is a fabricated blob whose
 //! first 32 bytes are the expected binding. Once a real TEE runs
-//! `bountynet enclave`, the same flow produces a genuine quote whose
+//! `cvm enclave`, the same flow produces a genuine quote whose
 //! AMD/Intel signature chain verifies.
 
-use runcards::eat::{BuildComponents, EatToken};
-use runcards::net::attested_tls::{
+use cvm_agent::eat::{BuildComponents, EatToken};
+use cvm_agent::net::attested_tls::{
     extract_eat_from_cert, generate_keypair, make_attested_cert, spki_hash_of, spki_hash_of_cert,
 };
-use runcards::quote::Platform;
+use cvm_agent::quote::Platform;
 
 /// Fabricate a 1152-byte "SNP-shaped" blob whose report_data slot
 /// contains the given binding. Not a valid attestation, but has the

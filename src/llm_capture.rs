@@ -147,21 +147,21 @@ pub struct ParticipantConfig {
     pub event_sink_url: String,
     pub bootstrap_url: String,
     pub gateway_manifest_url: String,
-    pub runcard_url: String,
-    pub runcard_json_url: String,
+    pub cvm_url: String,
+    pub cvm_json_url: String,
     #[serde(default)]
-    pub runcard_embed_url: String,
+    pub cvm_embed_url: String,
     #[serde(default)]
-    pub runcard_image_url: String,
+    pub cvm_image_url: String,
     #[serde(default)]
-    pub runcard_proof_url: String,
+    pub cvm_proof_url: String,
     #[serde(default)]
     pub capture_methods: Vec<String>,
 }
 
 impl ParticipantConfig {
     pub fn from_team_payload(value: &Value) -> std::result::Result<Self, String> {
-        let runcard_url = required_string(value, "runcard_url")?;
+        let cvm_url = required_string(value, "cvm_url")?;
         let cfg = Self {
             version: participant_config_version(),
             event_id: required_string(value, "event_id")?,
@@ -173,15 +173,15 @@ impl ParticipantConfig {
             event_sink_url: required_string(value, "event_sink_url")?,
             bootstrap_url: required_string(value, "bootstrap_url")?,
             gateway_manifest_url: required_string(value, "gateway_manifest_url")?,
-            runcard_json_url: optional_string(value, "runcard_json_url")
-                .unwrap_or_else(|| format!("{runcard_url}.json")),
-            runcard_embed_url: optional_string(value, "runcard_embed_url")
-                .unwrap_or_else(|| format!("{runcard_url}.embed")),
-            runcard_image_url: optional_string(value, "runcard_image_url")
-                .unwrap_or_else(|| format!("{runcard_url}.svg")),
-            runcard_proof_url: optional_string(value, "runcard_proof_url")
-                .unwrap_or_else(|| format!("{runcard_url}.proof.json")),
-            runcard_url,
+            cvm_json_url: optional_string(value, "cvm_json_url")
+                .unwrap_or_else(|| format!("{cvm_url}.json")),
+            cvm_embed_url: optional_string(value, "cvm_embed_url")
+                .unwrap_or_else(|| format!("{cvm_url}.embed")),
+            cvm_image_url: optional_string(value, "cvm_image_url")
+                .unwrap_or_else(|| format!("{cvm_url}.svg")),
+            cvm_proof_url: optional_string(value, "cvm_proof_url")
+                .unwrap_or_else(|| format!("{cvm_url}.proof.json")),
+            cvm_url,
             capture_methods: value
                 .get("capture_methods")
                 .and_then(Value::as_array)

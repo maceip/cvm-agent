@@ -1,6 +1,6 @@
 use base64::Engine as _;
-use runcards::eat::EatToken;
-use runcards::llm_attested::{ContestEvent, CAPTURE_RA_PROFILE};
+use cvm_agent::eat::EatToken;
+use cvm_agent::llm_attested::{ContestEvent, CAPTURE_RA_PROFILE};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -136,13 +136,13 @@ fn wait_http_ok(url: &str) {
     panic!("timed out waiting for {url}");
 }
 
-fn wait_runcard_count(fixture: &EventFixture, expected: u64) -> Value {
-    wait_team_runcard_count(fixture, &fixture.team_id, expected)
+fn wait_cvm_count(fixture: &EventFixture, expected: u64) -> Value {
+    wait_team_cvm_count(fixture, &fixture.team_id, expected)
 }
 
-fn wait_team_runcard_count(fixture: &EventFixture, team_id: &str, expected: u64) -> Value {
+fn wait_team_cvm_count(fixture: &EventFixture, team_id: &str, expected: u64) -> Value {
     let url = format!(
-        "{}/e/{}/teams/{}/runcard.json",
+        "{}/e/{}/teams/{}/cvm.json",
         fixture.base_url, fixture.event_id, team_id
     );
     let started = Instant::now();
@@ -154,7 +154,7 @@ fn wait_team_runcard_count(fixture: &EventFixture, team_id: &str, expected: u64)
         }
         thread::sleep(Duration::from_millis(50));
     }
-    panic!("timed out waiting for runcard count {expected}");
+    panic!("timed out waiting for cvm count {expected}");
 }
 
 fn get_json(client: &reqwest::blocking::Client, url: &str) -> Value {
@@ -165,7 +165,7 @@ fn get_json(client: &reqwest::blocking::Client, url: &str) -> Value {
 fn with_receipts(mut card: Value) -> Value {
     let receipts_url = card["share"]["receipts_url"]
         .as_str()
-        .expect("runcard should expose receipts_url");
+        .expect("cvm should expose receipts_url");
     let receipts = get_json(&reqwest::blocking::Client::new(), receipts_url);
     card.as_object_mut()
         .unwrap()
@@ -405,7 +405,7 @@ fn start_gateway_process(
         receipt = receipt_fixture.0;
         value_x = receipt_fixture.1;
         args.extend([
-            "--runcard-receipt".to_string(),
+            "--cvm-receipt".to_string(),
             receipt.to_str().unwrap().to_string(),
             "--value-x".to_string(),
             value_x,
@@ -453,7 +453,7 @@ fn gateway_path(capture_method: &str, assurance: &str, enforcement: &str, provid
         .send()
         .unwrap();
     assert!(resp.status().is_success(), "{:?}", resp.text());
-    with_receipts(wait_runcard_count(&fixture, 1))
+    with_receipts(wait_cvm_count(&fixture, 1))
 }
 
 #[test]
@@ -471,7 +471,7 @@ fn attested_gateway_capture_path_e2e() {
     assert_gateway_call_event(&event, "gateway_proxy", "attested", "routed", "openai-test");
     assert_eq!(event.evidence["ra_profile"], CAPTURE_RA_PROFILE);
     assert_eq!(event.evidence["ra_platform"], "tdx");
-    assert!(event.evidence["ra_runcard_receipt_hash"].starts_with("sha256:"));
+    assert!(event.evidence["ra_cvm_receipt_hash"].starts_with("sha256:"));
 }
 
 #[test]
@@ -497,7 +497,7 @@ fn event_service_rejects_unverified_attested_capture_e2e() {
         .status()
         .unwrap();
     assert!(!status.success());
-    let card = wait_runcard_count(&fixture, 0);
+    let card = wait_cvm_count(&fixture, 0);
     assert_eq!(card["stats"]["captured_events"], 0);
 }
 
@@ -565,7 +565,7 @@ fn claude_cli_anthropic_messages_gateway_usage_e2e() {
     let upstream_body: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(upstream_body["id"], "msg_test");
 
-    let card = with_receipts(wait_runcard_count(&fixture, 1));
+    let card = with_receipts(wait_cvm_count(&fixture, 1));
     assert_eq!(card["labels"]["capture_methods"]["gateway_proxy"], 1);
     assert_eq!(card["labels"]["assurance"]["participant_controlled"], 1);
     assert_eq!(card["labels"]["enforcement"]["routed"], 1);
@@ -640,8 +640,8 @@ fn gateway_cross_team_credentials_cannot_credit_another_team_e2e() {
     let body = resp.text().unwrap();
     assert!(status.is_success(), "{body}");
 
-    let other_card = with_receipts(wait_team_runcard_count(&fixture, &other_team_id, 1));
-    let first_card = wait_runcard_count(&fixture, 0);
+    let other_card = with_receipts(wait_team_cvm_count(&fixture, &other_team_id, 1));
+    let first_card = wait_cvm_count(&fixture, 0);
     assert_eq!(first_card["stats"]["captured_events"], 0);
     assert_eq!(other_card["stats"]["captured_events"], 1);
     let event = single_event_from_card(&other_card);
@@ -754,7 +754,7 @@ fn gateway_rejects_bad_team_credentials_e2e() {
         .send()
         .unwrap();
     assert_eq!(resp.status().as_u16(), 401);
-    let card = wait_runcard_count(&fixture, 0);
+    let card = wait_cvm_count(&fixture, 0);
     assert_eq!(card["stats"]["captured_events"], 0);
 }
 
@@ -801,7 +801,7 @@ fn participant_config_status_smoke_and_run_e2e() {
     let status_json: Value = serde_json::from_slice(&status.stdout).unwrap();
     assert_eq!(status_json["ready"], true);
     assert_eq!(status_json["checks"]["bootstrap"], true);
-    assert_eq!(status_json["checks"]["runcard"], true);
+    assert_eq!(status_json["checks"]["cvm"], true);
 
     let smoke = Command::new(env!("CARGO_BIN_EXE_llmattest"))
         .args([
@@ -818,7 +818,7 @@ fn participant_config_status_smoke_and_run_e2e() {
         "{}",
         String::from_utf8_lossy(&smoke.stderr)
     );
-    let card = wait_runcard_count(&fixture, 1);
+    let card = wait_cvm_count(&fixture, 1);
     assert_eq!(card["labels"]["capture_methods"]["setup_smoke"], 1);
     assert_eq!(card["labels"]["enforcement"]["setup_smoke"], 1);
 
@@ -832,7 +832,7 @@ fn participant_config_status_smoke_and_run_e2e() {
             "--",
             "/bin/sh",
             "-c",
-            "test -n \"$OPENAI_BASE_URL\" && test -n \"$OPENAI_API_KEY\" && test -n \"$LLM_ATTESTED_RUNCARD_URL\"",
+            "test -n \"$OPENAI_BASE_URL\" && test -n \"$OPENAI_API_KEY\" && test -n \"$LLM_ATTESTED_CVM_URL\"",
         ])
         .output()
         .unwrap();
@@ -841,7 +841,7 @@ fn participant_config_status_smoke_and_run_e2e() {
         "{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    let card = wait_runcard_count(&fixture, 2);
+    let card = wait_cvm_count(&fixture, 2);
     assert_eq!(card["labels"]["capture_methods"]["sdk_cli_wrapper"], 1);
 
     let watched = Command::new(env!("CARGO_BIN_EXE_llmattest"))
@@ -997,7 +997,7 @@ fn participant_start_single_entrypoint_e2e() {
             "--",
             "/bin/sh",
             "-c",
-            "test -n \"$OPENAI_BASE_URL\" && test -n \"$OPENAI_API_KEY\" && test -n \"$LLM_ATTESTED_RUNCARD_URL\" && test -n \"$LLM_ATTESTED_LOCAL_CAPTURE_URL\"",
+            "test -n \"$OPENAI_BASE_URL\" && test -n \"$OPENAI_API_KEY\" && test -n \"$LLM_ATTESTED_CVM_URL\" && test -n \"$LLM_ATTESTED_LOCAL_CAPTURE_URL\"",
         ])
         .output()
         .unwrap();
@@ -1026,7 +1026,7 @@ fn participant_start_single_entrypoint_e2e() {
     );
     assert!(config_path.exists());
 
-    let card = wait_runcard_count(&fixture, 2);
+    let card = wait_cvm_count(&fixture, 2);
     assert_eq!(card["labels"]["capture_methods"]["setup_smoke"], 1);
     assert_eq!(card["labels"]["capture_methods"]["sdk_cli_wrapper"], 1);
 }
@@ -1098,7 +1098,7 @@ fn participant_start_supervises_local_daemon_e2e() {
 
     let status = start.0.wait().unwrap();
     assert!(status.success());
-    let card = with_receipts(wait_runcard_count(&fixture, 1));
+    let card = with_receipts(wait_cvm_count(&fixture, 1));
     assert_eq!(card["labels"]["capture_methods"]["manual_import"], 1);
     assert_eq!(card["stats"]["total_tokens"], 11);
     let event = event_by_capture_method(&card, "manual_import");
@@ -1112,7 +1112,7 @@ fn participant_start_supervises_local_daemon_e2e() {
 }
 
 #[test]
-fn runcard_share_surfaces_e2e() {
+fn cvm_share_surfaces_e2e() {
     let fixture = start_event_fixture("share-surfaces");
     let temp = tempfile::tempdir().unwrap().keep();
     let report_path = temp.join("share.json");
@@ -1135,19 +1135,19 @@ fn runcard_share_surfaces_e2e() {
         .unwrap();
     assert!(status.success());
 
-    let card = wait_runcard_count(&fixture, 1);
+    let card = wait_cvm_count(&fixture, 1);
     assert!(card["share"]["embed_url"]
         .as_str()
         .unwrap()
-        .ends_with("/runcard.embed"));
+        .ends_with("/cvm.embed"));
     assert!(card["share"]["image_url"]
         .as_str()
         .unwrap()
-        .ends_with("/runcard.svg"));
+        .ends_with("/cvm.svg"));
     assert!(card["share"]["individual_signal_image_url"]
         .as_str()
         .unwrap()
-        .ends_with("/runcard.signal.svg"));
+        .ends_with("/cvm.signal.svg"));
     assert!(card["integrity"]["event_log_root"]
         .as_str()
         .unwrap()
@@ -1160,7 +1160,7 @@ fn runcard_share_surfaces_e2e() {
         .unwrap()
         .text()
         .unwrap();
-    assert!(embed.contains("Live runcard"));
+    assert!(embed.contains("Live cvm"));
 
     let svg = client
         .get(card["share"]["image_url"].as_str().unwrap())
@@ -1170,7 +1170,7 @@ fn runcard_share_surfaces_e2e() {
         .unwrap();
     assert!(svg.starts_with("<svg"));
     assert!(svg.contains("scan to verify"));
-    assert!(svg.contains("runcard-card-json"));
+    assert!(svg.contains("cvm-card-json"));
     assert!(svg.contains("data-sha256=\"sha256:"));
 
     let signal_json = get_json(
@@ -1181,7 +1181,7 @@ fn runcard_share_surfaces_e2e() {
     );
     assert_eq!(
         signal_json["profile"],
-        "https://runcard.dev/llm-individual-signal/v1"
+        "https://cvm.dev/llm-individual-signal/v1"
     );
     assert_eq!(
         signal_json["participant"]["agent_session_id"],
@@ -1202,8 +1202,8 @@ fn runcard_share_surfaces_e2e() {
         .unwrap();
     assert!(signal_svg.starts_with("<svg"));
     assert!(signal_svg.contains("agent_capture_test"));
-    assert!(signal_svg.contains("LIVE RUNCARD"));
-    assert!(signal_svg.contains("runcard-card-json"));
+    assert!(signal_svg.contains("LIVE CVM"));
+    assert!(signal_svg.contains("cvm-card-json"));
     assert!(signal_svg.contains("llm-individual-signal/v1"));
 
     let qr = client
@@ -1226,7 +1226,7 @@ fn runcard_share_surfaces_e2e() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|value| value == "RuncardCredential"));
+        .any(|value| value == "CvmCredential"));
 
     let oembed = get_json(&client, card["share"]["oembed_url"].as_str().unwrap());
     assert_eq!(oembed["type"], "rich");
@@ -1277,7 +1277,7 @@ fn browser_extension_capture_path_e2e() {
     assert_eq!(accepted["assurance"], "participant_controlled");
     assert_hash(accepted["event_hash"].as_str().unwrap());
 
-    let card = with_receipts(wait_runcard_count(&fixture, 1));
+    let card = with_receipts(wait_cvm_count(&fixture, 1));
     assert_eq!(card["labels"]["capture_methods"]["browser_extension"], 1);
     assert_eq!(card["labels"]["assurance"]["participant_controlled"], 1);
     assert_eq!(card["stats"]["total_tokens"], 7);
@@ -1380,7 +1380,7 @@ fn codex_web_browser_capture_records_visible_session_without_attestation_e2e() {
     assert_eq!(accepted["capture_method"], "browser_extension");
     assert_eq!(accepted["assurance"], "participant_controlled");
 
-    let card = with_receipts(wait_runcard_count(&fixture, 1));
+    let card = with_receipts(wait_cvm_count(&fixture, 1));
     assert_eq!(card["labels"]["capture_methods"]["browser_extension"], 1);
     assert_eq!(card["labels"]["assurance"]["participant_controlled"], 1);
     assert_eq!(card["labels"]["enforcement"]["browser_observed"], 1);
@@ -1465,7 +1465,7 @@ fn browser_extension_cannot_self_upgrade_to_attested_e2e() {
     assert_eq!(accepted["capture_method"], "browser_extension");
     assert_eq!(accepted["assurance"], "attested");
 
-    let card = wait_runcard_count(&fixture, 0);
+    let card = wait_cvm_count(&fixture, 0);
     assert_eq!(card["stats"]["captured_events"], 0);
     let pending_body = std::fs::read_to_string(pending_path).unwrap();
     let pending_event = ContestEvent::from_cbor(
@@ -1561,7 +1561,7 @@ fn capture_daemon_config_and_minimal_report_e2e() {
     assert_eq!(accepted["capture_method"], "manual_import");
     assert_eq!(accepted["assurance"], "self_reported");
     assert_hash(accepted["event_hash"].as_str().unwrap());
-    let card = with_receipts(wait_runcard_count(&fixture, 1));
+    let card = with_receipts(wait_cvm_count(&fixture, 1));
     assert_eq!(card["labels"]["capture_methods"]["manual_import"], 1);
     assert_eq!(card["labels"]["assurance"]["self_reported"], 1);
     assert_eq!(card["stats"]["total_tokens"], 5);
@@ -1596,7 +1596,7 @@ fn capture_daemon_config_and_minimal_report_e2e() {
     assert_eq!(duplicate["accepted"], true);
     assert_eq!(duplicate["duplicate"], true);
     assert_eq!(duplicate["count"], 1);
-    let card = wait_runcard_count(&fixture, 1);
+    let card = wait_cvm_count(&fixture, 1);
     assert_eq!(card["stats"]["captured_events"], 1);
 }
 
@@ -1706,7 +1706,7 @@ fn manual_import_capture_path_e2e() {
         .status()
         .unwrap();
     assert!(status.success());
-    let card = with_receipts(wait_runcard_count(&fixture, 1));
+    let card = with_receipts(wait_cvm_count(&fixture, 1));
     assert_eq!(card["labels"]["capture_methods"]["manual_import"], 1);
     assert_eq!(card["labels"]["assurance"]["self_reported"], 1);
     assert_eq!(card["stats"]["total_tokens"], 7);
@@ -1760,7 +1760,7 @@ fn provider_tls_notary_fallback_capture_path_e2e() {
             "--target-origin",
             "https://console.anthropic.com",
             "--notary-url",
-            "https://notary.runcard.example",
+            "https://notary.cvm.example",
             "--proof",
             proof_path.to_str().unwrap(),
             "--claim",
@@ -1772,7 +1772,7 @@ fn provider_tls_notary_fallback_capture_path_e2e() {
         .unwrap();
     assert!(status.success());
 
-    let card = with_receipts(wait_runcard_count(&fixture, 1));
+    let card = with_receipts(wait_cvm_count(&fixture, 1));
     assert_eq!(card["labels"]["capture_methods"]["provider_tls_notary"], 1);
     assert_eq!(card["labels"]["assurance"]["participant_controlled"], 1);
     assert_eq!(card["labels"]["enforcement"]["retrospective_proof"], 1);
@@ -1801,7 +1801,7 @@ fn provider_tls_notary_fallback_capture_path_e2e() {
     assert_eq!(event.evidence["notary_protocol"], "tlsnotary-mpc-tls");
     assert_eq!(
         event.evidence["notary_url"],
-        "https://notary.runcard.example"
+        "https://notary.cvm.example"
     );
     assert_eq!(
         event.evidence["completeness"],
@@ -1873,7 +1873,7 @@ fn tee_workspace_capture_path_e2e() {
     );
     assert_eq!(event.evidence["ra_profile"], CAPTURE_RA_PROFILE);
     assert_eq!(event.evidence["ra_platform"], "tdx");
-    assert!(event.evidence["ra_runcard_receipt_hash"].starts_with("sha256:"));
+    assert!(event.evidence["ra_cvm_receipt_hash"].starts_with("sha256:"));
 }
 
 fn wrapper_path(
@@ -1908,7 +1908,7 @@ fn wrapper_path(
         .status()
         .unwrap();
     assert!(status.success());
-    with_receipts(wait_runcard_count(&fixture, 1))
+    with_receipts(wait_cvm_count(&fixture, 1))
 }
 
 fn base_report(fixture: &EventFixture, capture_method: &str, assurance: &str) -> Value {

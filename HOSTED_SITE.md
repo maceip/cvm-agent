@@ -1,7 +1,7 @@
 # Hosted Site Local Testing
 
 The hosted event website is `llm-event-service`. It serves the organizer flow,
-participant join page, team payloads, dashboards, runcards, embeds, SVG cards,
+participant join page, team payloads, dashboards, cvms, embeds, SVG cards,
 QR codes, proof bundles, credentials, and trust registry.
 
 Run it locally:
@@ -10,9 +10,9 @@ Run it locally:
 packaging/local-site.sh
 ```
 
-The script builds the Runcards binaries, starts the site, creates a demo universal
+The script builds the Cvms binaries, starts the site, creates a demo universal
 event and team, writes `team.json` under `.local/llm-site`, and prints the local
-join, dashboard, and runcard URLs.
+join, dashboard, and cvm URLs.
 
 Run a self-contained smoke test:
 
@@ -27,7 +27,7 @@ packaging/smoke-local-site.sh --mode tee
 ```
 
 The smoke test starts the website, verifies the health endpoint, self-host
-document, trust registry, generated join/dashboard/runcard pages, and runcard
+document, trust registry, generated join/dashboard/cvm pages, and cvm
 JSON labels, then stops the site.
 
 ## Modes
@@ -40,11 +40,11 @@ packaging/local-site.sh --mode tee
 
 `auto` is the default. On a normal laptop it runs the website directly in plain
 local mode. On a TDX, SEV-SNP, or Nitro machine with a visible quote device, it
-uses the existing Runcard chain:
+uses the existing Cvm chain:
 
 ```text
-runcard build . -> attestation.cbor
-runcard run . --attestation attestation.cbor -> llm-event-service
+cvm build . -> attestation.cbor
+cvm run . --attestation attestation.cbor -> llm-event-service
 ```
 
 The same HTTP website is served in both modes. The difference is visible in:
@@ -73,7 +73,7 @@ TEE mode reports:
 ```
 
 The network URL is still only a routing hint. A deployment is trusted only after
-the relevant Runcard receipt or attested TLS check verifies the hardware quote,
+the relevant Cvm receipt or attested TLS check verifies the hardware quote,
 Value X, and measurement policy.
 
 ## Useful Options
@@ -82,7 +82,7 @@ Value X, and measurement policy.
 packaging/local-site.sh --listen 127.0.0.1:8099
 packaging/local-site.sh --public-base-url http://127.0.0.1:8099
 packaging/local-site.sh --gateway-base-url http://127.0.0.1:8088
-packaging/local-site.sh --state-dir /tmp/runcard-site
+packaging/local-site.sh --state-dir /tmp/cvm-site
 packaging/local-site.sh --no-demo
 ```
 
@@ -101,5 +101,5 @@ packaging/smoke-local-site.sh --mode plain
 
 This test starts the hosted site outside a TEE and checks the full high-level
 user journey: home, self-host document, registry, event creation, join page,
-team payload, dashboard, runcard JSON, runcard page, embed, SVG, QR, proof,
+team payload, dashboard, cvm JSON, cvm page, embed, SVG, QR, proof,
 credential, and oEmbed.

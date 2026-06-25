@@ -1,6 +1,6 @@
 use ed25519_dalek::SigningKey;
-use runcards::eat::EatToken;
-use runcards::llm_attested::{
+use cvm_agent::eat::EatToken;
+use cvm_agent::llm_attested::{
     build_capture_ra_claim, insert_capture_ra_evidence, sha256_prefixed, CaptureRaError,
     ContestEvent, ContestManifest, EventActor, TrustPolicy, CAPTURE_RA_PROFILE,
     REMOTE_ATTESTED_CAPTURE_PATHS,
@@ -38,8 +38,8 @@ fn manifest(receipt: &[u8], value_x: &str, key: &SigningKey) -> ContestManifest 
         capture_methods,
         TrustPolicy::self_hosted(
             vec!["tdx".to_string()],
-            "https://gateway.example/.well-known/runcard/receipt".to_string(),
-            "https://events.example/.well-known/runcard/registry.json".to_string(),
+            "https://gateway.example/.well-known/cvm/receipt".to_string(),
+            "https://events.example/.well-known/cvm/registry.json".to_string(),
         ),
         &key.verifying_key(),
         vec!["llm.call".to_string()],
@@ -75,7 +75,7 @@ fn every_remote_attested_capture_path_spec_builds_claim_from_tdx_fixture() {
         assert_eq!(claim.requirement, spec.requirement);
         assert_eq!(claim.platform, "tdx");
         assert_eq!(claim.value_x, value_x);
-        assert_eq!(claim.runcard_receipt_hash, sha256_prefixed(&receipt));
+        assert_eq!(claim.cvm_receipt_hash, sha256_prefixed(&receipt));
         assert_eq!(claim.manifest_hash, manifest_hash);
         assert!(claim.chain_depth >= 2);
     }
@@ -100,7 +100,7 @@ fn tdx_gateway_capture_ra_claim_verifies_from_hardware_fixture() {
     assert_eq!(claim.profile, CAPTURE_RA_PROFILE);
     assert_eq!(claim.platform, "tdx");
     assert_eq!(claim.value_x, value_x);
-    assert_eq!(claim.runcard_receipt_hash, sha256_prefixed(&receipt));
+    assert_eq!(claim.cvm_receipt_hash, sha256_prefixed(&receipt));
     assert!(
         claim.chain_depth >= 2,
         "stage 1 fixture must chain to stage 0"
@@ -133,7 +133,7 @@ fn tampered_receipt_hash_is_rejected() {
     let (receipt, value_x) = load_receipt("tdx_stage1.cbor");
     let key = SigningKey::from_bytes(&[7u8; 32]);
     let mut manifest = manifest(&receipt, &value_x, &key);
-    manifest.runcard_receipt_hash = sha256_prefixed(b"different receipt");
+    manifest.cvm_receipt_hash = sha256_prefixed(b"different receipt");
     let manifest_hash = manifest.hash().unwrap();
     let err = build_capture_ra_claim(
         &manifest,

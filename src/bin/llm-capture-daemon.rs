@@ -9,13 +9,13 @@
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::header::CONTENT_TYPE;
-use runcards::http_service::{
+use cvm_agent::http_service::{
     serve_hyper, write_json, write_rate_limited, write_response, BufferedResponse as HttpConn,
     CorsHeaders, HandlerFuture, HttpRequest, HttpServerConfig,
 };
-use runcards::llm_attested::sha256_prefixed;
-use runcards::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
-use runcards::llm_capture::{signing_key_from_seed, CaptureReport, ParticipantConfig};
+use cvm_agent::llm_attested::sha256_prefixed;
+use cvm_agent::llm_attested_net::{RateLimitPolicy, ServiceRateLimiter};
+use cvm_agent::llm_capture::{signing_key_from_seed, CaptureReport, ParticipantConfig};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -228,14 +228,14 @@ fn fill_report_defaults(
         .or_insert_with(|| "llm-capture-daemon".to_string());
 }
 
-async fn send_event(state: &State, event: &runcards::llm_attested::ContestEvent) -> Result<()> {
+async fn send_event(state: &State, event: &cvm_agent::llm_attested::ContestEvent) -> Result<()> {
     let body = event.to_cbor().context("encode capture event")?;
     send_event_body(state, body).await
 }
 
 async fn send_event_with_backoff(
     state: &State,
-    event: &runcards::llm_attested::ContestEvent,
+    event: &cvm_agent::llm_attested::ContestEvent,
 ) -> Result<()> {
     let mut delay = Duration::from_millis(200);
     let mut last_error = None;
@@ -319,7 +319,7 @@ async fn replay_pending_events(state: &State) -> Result<usize> {
     Ok(delivered)
 }
 
-fn append_event(path: &PathBuf, event: &runcards::llm_attested::ContestEvent) -> Result<()> {
+fn append_event(path: &PathBuf, event: &cvm_agent::llm_attested::ContestEvent) -> Result<()> {
     let cbor = event.to_cbor().context("encode event")?;
     let line = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, cbor);
     use std::io::Write;

@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   live-tdx-capture:
-    runs-on: [self-hosted, tdx, bountynet]
+    runs-on: [self-hosted, tdx, cvm]
     timeout-minutes: 45
     steps:
       - name: Repair runner workspace ownership
@@ -41,15 +41,15 @@ jobs:
             echo "cargo was not found"
             exit 1
           fi
-          RUNCARD_BIN="$(command -v runcard || command -v bountynet || true)"
-          if [ -z "$RUNCARD_BIN" ]; then
-            echo "self-hosted RA runner must provide runcard or bountynet"
+          CVM_BIN="$(command -v cvm || true)"
+          if [ -z "$CVM_BIN" ]; then
+            echo "self-hosted RA runner must provide cvm or cvm"
             exit 1
           fi
           "$CARGO_BIN" --version
-          "$RUNCARD_BIN" 2>&1 | head -4 || true
+          "$CVM_BIN" 2>&1 | head -4 || true
           echo "CARGO_BIN=$CARGO_BIN" >> "$GITHUB_ENV"
-          echo "RUNCARD_BIN=$RUNCARD_BIN" >> "$GITHUB_ENV"
+          echo "CVM_BIN=$CVM_BIN" >> "$GITHUB_ENV"
           echo "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" >> "$GITHUB_ENV"
           echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
 
@@ -144,11 +144,11 @@ jobs:
           TEAM_KEY="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["team_api_key"])' "$WORK/team.json")"
 
           mkdir -p "$WORK/attest-out"
-          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" build . \
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$CVM_BIN" build . \
             --cmd "$CARGO_BIN build --release --bins" \
             --output "$WORK/attest-out"
 
-          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$RUNCARD_BIN" run . \
+          sudo env "PATH=$PATH" "RUSTUP_HOME=$RUSTUP_HOME" "CARGO_HOME=$CARGO_HOME" "$CVM_BIN" run . \
             --attestation "$WORK/attest-out/attestation.cbor" \
             --cmd "./target/release/llm-gateway \
               --listen 127.0.0.1:$GATEWAY_PORT \
@@ -160,19 +160,19 @@ jobs:
               --capture-method gateway_proxy \
               --assurance attested \
               --enforcement-mode routed \
-              --runcard-receipt $WORK/attest-out/stage1-attestation.cbor \
+              --cvm-receipt $WORK/attest-out/stage1-attestation.cbor \
               --events $WORK/gateway-events.cborl \
               --rate-state $WORK/gateway-rate.json \
               --team $TEAM_ID:$TEAM_KEY \
               --ip-requests-per-minute 10000 \
               --team-requests-per-minute 10000" &
-          echo $! > "$WORK/runcard-run.pid"
+          echo $! > "$WORK/cvm-run.pid"
 
           for _ in $(seq 1 200); do
             curl -fsS "$GATEWAY_BASE/healthz" >/dev/null && break
             sleep 0.2
           done
-          curl -fsS "$GATEWAY_BASE/.well-known/runcard/receipt" > "$WORK/gateway-receipt.cbor"
+          curl -fsS "$GATEWAY_BASE/.well-known/cvm/receipt" > "$WORK/gateway-receipt.cbor"
           test -s "$WORK/gateway-receipt.cbor"
 
           curl -fsS -X POST "$GATEWAY_BASE/v1/chat/completions" \
@@ -182,20 +182,20 @@ jobs:
             --data '{"model":"live-ra-model","messages":[{"role":"user","content":"prove RA"}]}' \
             > "$WORK/model-response.json"
 
-          RUNCARD_URL="$EVENT_BASE/e/$EVENT_ID/teams/$TEAM_ID/runcard.json"
+          CVM_URL="$EVENT_BASE/e/$EVENT_ID/teams/$TEAM_ID/cvm.json"
           for _ in $(seq 1 100); do
-            curl -fsS "$RUNCARD_URL" > "$WORK/runcard.json"
-            python3 - "$WORK/runcard.json" <<'PY' && break || true
+            curl -fsS "$CVM_URL" > "$WORK/cvm.json"
+            python3 - "$WORK/cvm.json" <<'PY' && break || true
           import json, sys
           card = json.load(open(sys.argv[1]))
           assert card["stats"]["captured_events"] >= 1
           assert card["labels"]["assurance"]["attested"] >= 1
-          assert card["labels"]["remote_attestation"]["https://runcard.dev/llm-capture-ra/v1"] >= 1
+          assert card["labels"]["remote_attestation"]["https://cvm.dev/llm-capture-ra/v1"] >= 1
           assert card["labels"]["ra_platforms"]["tdx"] >= 1
           PY
             sleep 0.2
           done
-          python3 - "$WORK/runcard.json" <<'PY'
+          python3 - "$WORK/cvm.json" <<'PY'
           import json, sys
           card = json.load(open(sys.argv[1]))
           assert card["stats"]["total_tokens"] == 13, card

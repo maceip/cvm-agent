@@ -9,7 +9,7 @@ hardware.
 
 ## What "the right machine" means
 
-Runcard should not mean "we reached the IP we expected." It should mean:
+Cvm should not mean "we reached the IP we expected." It should mean:
 
 1. The endpoint returned a fresh quote containing the verifier's nonce.
 2. The hardware quote verifies against the vendor root for TDX, SEV-SNP, or
@@ -27,12 +27,12 @@ GitHub registration token, and opens an outbound runner session to GitHub. Jobs
 select it by labels such as:
 
 ```yaml
-runs-on: [self-hosted, tdx, bountynet]
+runs-on: [self-hosted, tdx, cvm]
 ```
 
 That label match is an availability and scheduling mechanism. It is not a trust
 decision. A workflow must treat the runner as untrusted until the job produces
-and verifies a hardware-rooted Runcard receipt.
+and verifies a hardware-rooted Cvm receipt.
 
 ## Public attestation endpoint path
 
@@ -59,11 +59,11 @@ match.
 For the runtime flow, use:
 
 ```bash
-runcard check https://<domain>/
+cvm check https://<domain>/
 ```
 
 The TLS certificate is intentionally authenticated by attestation instead of a
-normal CA chain. `runcard check` extracts the EAT receipt from the certificate,
+normal CA chain. `cvm check` extracts the EAT receipt from the certificate,
 verifies the hardware quote, checks the report-data binding, and verifies that
 the certificate SPKI hash is the same key the TEE committed to. That is what
 prevents a relay or man-in-the-middle from turning "attestation over TLS" into a
