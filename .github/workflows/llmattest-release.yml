@@ -97,6 +97,10 @@ jobs:
 
   tdx-attested-linux:
     name: TDX attested Linux binary
+    # Skip on push unless a TDX runner is registered (set TDX_RUNNER_ONLINE=true
+    # once the GCP TDX CVM is up). Manual dispatch always runs. The hosted
+    # `package` matrix above still builds on every push.
+    if: ${{ vars.TDX_RUNNER_ONLINE == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted, tdx, cvm]
     timeout-minutes: 45
 
