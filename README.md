@@ -70,6 +70,14 @@ with no tee of your own: **aws sev-snp** (milan, vlek → ark-milan), **aws nitr
 ark-milan, no MAA in the trust path). status + verification commands:
 https://maceip.github.io/unified-quote/live.html
 
+the azure node closes the loop end-to-end: `attestation-service` is built
+*inside* that cvm by a self-hosted github runner, and the artifact digest is
+bound as `value_x` into the amd-rooted vTPM ak quote. it's served over
+**attested-TLS** at `https://attest.secure.build:8443/` — the leaf cert itself
+carries the snp→amd bundle, so two independent roots (sigstore supply-chain +
+amd silicon) meet at one digest. one command checks both:
+`uq azure check-tls https://attest.secure.build:8443/`.
+
 pages: https://maceip.github.io/cvm-agent/
 
 <!-- agentic-canon -->

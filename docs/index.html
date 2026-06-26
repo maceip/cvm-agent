@@ -152,8 +152,11 @@ if (v.ok) await secrets.release("PROD_TOKEN")</pre>
     <pre><span class="c">// three hardware-rooted nodes, re-verifiable by anyone — no tee needed</span>
 aws sev-snp   <span class="ok">verified</span>  <span class="c"># milan · vlek → ark-milan (pinned)</span>
 aws nitro     <span class="ok">verified</span>  <span class="c"># enclave pcr0 → aws nitro root (pinned)</span>
-azure sev-snp <span class="ok">verified</span>  <span class="c"># vTPM snp report → ark-milan (no MAA)</span></pre>
-    <p class="summary" style="margin:.6rem 0 0">live status &amp; remote re-verification:
+azure sev-snp <span class="ok">verified</span>  <span class="c"># attested-TLS · snp→ark-milan + value_x (source→silicon)</span></pre>
+    <p class="summary" style="margin:.6rem 0 0">the azure node serves <b>attested-TLS</b> at
+      <code>attest.secure.build</code> — the leaf cert carries the snp→amd bundle, and
+      <code>value_x</code> ties github build provenance to the silicon.
+      <br>live status &amp; remote re-verification:
       <a class="link" href="https://maceip.github.io/unified-quote/live.html">unified-quote/live</a></p>
   </div>
 
