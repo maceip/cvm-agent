@@ -64,6 +64,12 @@ the receipts are real captured quotes (tdx build→runtime chain, aws nitro),
 verified offline against pinned vendor roots. the verifier is the base layer's
 code — no fork, no copy.
 
+the mesh is live across three clouds-rooted nodes, each remotely re-verifiable
+with no tee of your own: **aws sev-snp** (milan, vlek → ark-milan), **aws nitro**
+(enclave pcr0 → aws root), and **azure sev-snp** (vTPM-exposed snp report →
+ark-milan, no MAA in the trust path). status + verification commands:
+https://maceip.github.io/unified-quote/live.html
+
 pages: https://maceip.github.io/cvm-agent/
 
 <!-- agentic-canon -->

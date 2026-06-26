@@ -147,6 +147,16 @@ if (v.ok) await secrets.release("PROD_TOKEN")</pre>
     </ul>
   </div>
 
+  <h2 class="reveal" style="--d:.34s">live mesh</h2>
+  <div class="card reveal" style="--d:.35s">
+    <pre><span class="c">// three hardware-rooted nodes, re-verifiable by anyone — no tee needed</span>
+aws sev-snp   <span class="ok">verified</span>  <span class="c"># milan · vlek → ark-milan (pinned)</span>
+aws nitro     <span class="ok">verified</span>  <span class="c"># enclave pcr0 → aws nitro root (pinned)</span>
+azure sev-snp <span class="ok">verified</span>  <span class="c"># vTPM snp report → ark-milan (no MAA)</span></pre>
+    <p class="summary" style="margin:.6rem 0 0">live status &amp; remote re-verification:
+      <a class="link" href="https://maceip.github.io/unified-quote/live.html">unified-quote/live</a></p>
+  </div>
+
   <h2 class="reveal" style="--d:.36s">agentic canon</h2>
   <div class="canon reveal" style="--d:.38s">
     <figure class="scroll" aria-label="agentic canon">
@@ -164,7 +174,7 @@ if (v.ok) await secrets.release("PROD_TOKEN")</pre>
 
   <footer class="reveal" style="--d:.42s">
     <span><a href="https://github.com/maceip/cvm-agent">github.com/maceip/cvm-agent</a></span>
-    <span>aws nitro &middot; amd sev-snp &middot; intel tdx</span>
+    <span>aws &middot; azure &middot; sev-snp &middot; nitro &middot; tdx</span>
   </footer>
 </div>
 </body>
