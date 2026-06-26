@@ -2,7 +2,7 @@
 **/.DS_Store
 /target/
 /dist/
-/bountynet-test
+/cvm-test
 *.swp
 *.swo
 .env
