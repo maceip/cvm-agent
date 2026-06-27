@@ -29,13 +29,14 @@ Filename: `<value_x[0..16]>.json` — short prefix of Value X, for easy lookup.
 
 Each entry has a detached signature sidecar: `<value_x[0..16]>.json.sig`.
 
-**Today:** unsigned entries are informational only, and sidecars are reported
-as unchecked until Sigstore verification lands in `src/registry.rs`. The
-signer will be Sigstore keyless (cosign + Fulcio + GitHub OIDC), so a
-maintainer never holds a key — the CI workflow identity is what signs.
-
-**Migration path:** swap the verifier impl in `src/registry.rs`. The
-on-disk format does not change.
+Sidecar signatures are **verified offline** in `src/registry.rs`: an entry is
+`Verified` only if some pinned trusted identity validates its detached
+signature, otherwise `Untrusted` — there is no "present, so trust it" path. Both
+raw-key (ed25519 / ECDSA P-256) and Sigstore-keyless signers are supported; for
+keyless, the Fulcio leaf's SAN URI must glob-match the pinned subject and its
+OIDC-issuer extension must equal the pinned issuer (cosign + Fulcio + GitHub
+OIDC), so a maintainer never holds a key — the CI workflow identity is what
+signs. An entry with no sidecar is `Missing` (informational only).
 
 ## Trust model
 

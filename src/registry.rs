@@ -14,9 +14,9 @@
 //! their own `TrustRoot` that trusts their signer. The registry format
 //! does not change; only the set of accepted identities does.
 //!
-//! Signature verification is stubbed pending Sigstore keyless integration.
-//! The on-disk format is stable: swapping the verifier impl does not
-//! require a migration.
+//! Signatures are verified offline (see `sigverify`): an entry is `Verified`
+//! only if a pinned trusted identity validates its detached signature, else
+//! `Untrusted`. There is no path that accepts an unverified sidecar.
 //!
 //! See `registry/README.md` for the schema and trust model.
 
@@ -73,10 +73,11 @@ pub enum Lookup {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureState {
-    /// Sidecar present and signature valid against the pinned identity.
+    /// Sidecar present and signature valid against a pinned trusted identity.
     Verified,
-    /// Sidecar present but verifier is stubbed — not yet checked.
-    Unchecked,
+    /// Sidecar present but no trusted identity verified it (bad signature,
+    /// unknown signer, or an empty trust root). NOT trustworthy — fail closed.
+    Untrusted,
     /// Sidecar missing.
     Missing,
 }
@@ -226,8 +227,8 @@ impl Registry {
 
     fn check_sidecar(
         json_path: &Path,
-        _body: &str,
-        _trust_root: &TrustRoot,
+        body: &str,
+        trust_root: &TrustRoot,
     ) -> anyhow::Result<SignatureState> {
         let sig_path = {
             let mut p = json_path.as_os_str().to_owned();
@@ -237,22 +238,25 @@ impl Registry {
         if !sig_path.exists() {
             return Ok(SignatureState::Missing);
         }
-        // Sidecar present. Verification is stubbed — see next step in the plan.
-        // When implemented:
-        //   for identity in &trust_root.identities {
-        //       match identity {
-        //           SigstoreKeyless { issuer, subject_pattern } => {
-        //               // parse cosign bundle
-        //               // verify Rekor inclusion → Fulcio chain → subject match → sig
-        //           }
-        //           RawPublicKey { algorithm, spki_der, .. } => {
-        //               // direct pubkey verify over body
-        //           }
-        //       }
-        //       if verified { return Ok(Verified); }
-        //   }
-        //   Ok(Unchecked)  // sig present but no identity in trust root matched
-        Ok(SignatureState::Unchecked)
+        let raw = std::fs::read(&sig_path)?;
+        let sidecar = match sigverify::Sidecar::parse(&raw) {
+            Some(s) => s,
+            None => {
+                eprintln!(
+                    "[cvm] Registry: {} present but unparseable",
+                    sig_path.display()
+                );
+                return Ok(SignatureState::Untrusted);
+            }
+        };
+        // An entry is accepted only if SOME identity in the trust root verifies
+        // it. Otherwise it is Untrusted — there is no "present, so trust it".
+        for id in &trust_root.identities {
+            if sigverify::verify_against(id, body.as_bytes(), &sidecar) {
+                return Ok(SignatureState::Verified);
+            }
+        }
+        Ok(SignatureState::Untrusted)
     }
 
     fn load_legacy_registry_json(&mut self, path: &Path) -> anyhow::Result<()> {
@@ -341,7 +345,7 @@ pub fn describe(lookup: &Lookup) -> String {
         Lookup::Found { entry, signature } => {
             let sig = match signature {
                 SignatureState::Verified => "signed",
-                SignatureState::Unchecked => "signature sidecar present (unchecked)",
+                SignatureState::Untrusted => "signature present but UNTRUSTED",
                 SignatureState::Missing => "UNSIGNED",
             };
             let status = match entry.status {
@@ -352,5 +356,285 @@ pub fn describe(lookup: &Lookup) -> String {
             format!("{status} ({sig}) — approved {}", entry.approved_at)
         }
         Lookup::Unknown => "UNKNOWN (not in registry)".to_string(),
+    }
+}
+
+/// Detached-signature sidecar verification.
+///
+/// Verification is fully offline. For `SigstoreKeyless` identities we bind the
+/// leaf certificate's identity (SAN URI + Fulcio OIDC-issuer extension) to the
+/// pinned `(issuer, subject_pattern)` and verify the detached signature with
+/// the leaf key. A sidecar that does not verify against any pinned identity is
+/// `Untrusted` — there is no path that accepts an unverified signature.
+mod sigverify {
+    use super::TrustedIdentity;
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use der::{Decode, Encode};
+
+    /// Parsed sidecar: a detached signature plus optional algorithm hint and a
+    /// leaf certificate (PEM) for keyless identities.
+    pub struct Sidecar {
+        pub sig: Vec<u8>,
+        pub cert_pem: Option<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct SidecarJson {
+        sig: String,
+        #[serde(default)]
+        cert: Option<String>,
+    }
+
+    impl Sidecar {
+        /// Parse either the JSON object form or a bare base64 detached signature.
+        pub fn parse(raw: &[u8]) -> Option<Self> {
+            let text = std::str::from_utf8(raw).ok()?.trim();
+            if text.starts_with('{') {
+                let j: SidecarJson = serde_json::from_str(text).ok()?;
+                let sig = B64.decode(j.sig.trim()).ok()?;
+                return Some(Sidecar {
+                    sig,
+                    cert_pem: j.cert,
+                });
+            }
+            let sig = B64.decode(text).ok()?;
+            Some(Sidecar {
+                sig,
+                cert_pem: None,
+            })
+        }
+    }
+
+    /// Does `id` verify `sidecar` over `msg` (the exact entry json bytes)?
+    pub fn verify_against(id: &TrustedIdentity, msg: &[u8], sidecar: &Sidecar) -> bool {
+        match id {
+            TrustedIdentity::RawPublicKey { spki_der, .. } => {
+                verify_sig_with_spki(spki_der, msg, &sidecar.sig)
+            }
+            TrustedIdentity::SigstoreKeyless {
+                issuer,
+                subject_pattern,
+            } => {
+                let pem = match &sidecar.cert_pem {
+                    Some(p) => p,
+                    None => return false,
+                };
+                let der = match pem_to_der(pem) {
+                    Some(d) => d,
+                    None => return false,
+                };
+                let cert = match x509_cert::Certificate::from_der(&der) {
+                    Ok(c) => c,
+                    Err(_) => return false,
+                };
+                let spki = match cert.tbs_certificate.subject_public_key_info.to_der() {
+                    Ok(s) => s,
+                    Err(_) => return false,
+                };
+                if !verify_sig_with_spki(&spki, msg, &sidecar.sig) {
+                    return false;
+                }
+                cert_identity_matches(&cert, issuer, subject_pattern)
+            }
+        }
+    }
+
+    /// Auto-detect the key type from the SPKI algorithm OID and verify a
+    /// detached signature over `msg`. Supports ed25519 and ECDSA P-256.
+    fn verify_sig_with_spki(spki_der: &[u8], msg: &[u8], sig: &[u8]) -> bool {
+        let spki = match spki::SubjectPublicKeyInfoRef::from_der(spki_der) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        let oid = spki.algorithm.oid.to_string();
+        let key = match spki.subject_public_key.as_bytes() {
+            Some(k) => k,
+            None => return false,
+        };
+        match oid.as_str() {
+            "1.3.101.112" => verify_ed25519(key, msg, sig),
+            "1.2.840.10045.2.1" => verify_ecdsa_p256(key, msg, sig),
+            _ => false,
+        }
+    }
+
+    fn verify_ed25519(key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
+        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        let key: [u8; 32] = match key.try_into() {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        let vk = match VerifyingKey::from_bytes(&key) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let sig: [u8; 64] = match sig.try_into() {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+        vk.verify(msg, &Signature::from_bytes(&sig)).is_ok()
+    }
+
+    fn verify_ecdsa_p256(sec1_point: &[u8], msg: &[u8], sig: &[u8]) -> bool {
+        use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+        let vk = match VerifyingKey::from_sec1_bytes(sec1_point) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        let parsed = Signature::from_der(sig).or_else(|_| Signature::from_slice(sig));
+        match parsed {
+            Ok(s) => vk.verify(msg, &s).is_ok(),
+            Err(_) => false,
+        }
+    }
+
+    /// PEM (`-----BEGIN CERTIFICATE-----`) to DER.
+    fn pem_to_der(pem: &str) -> Option<Vec<u8>> {
+        let mut b64 = String::new();
+        let mut in_block = false;
+        for line in pem.lines() {
+            let t = line.trim();
+            if t.starts_with("-----BEGIN") {
+                in_block = true;
+                continue;
+            }
+            if t.starts_with("-----END") {
+                break;
+            }
+            if in_block {
+                b64.push_str(t);
+            }
+        }
+        if b64.is_empty() {
+            return None;
+        }
+        B64.decode(b64).ok()
+    }
+
+    /// Match a Fulcio leaf certificate against the pinned `(issuer,
+    /// subject_pattern)`: the SAN URI must glob-match `subject_pattern`, and
+    /// the OIDC issuer extension must equal `issuer`.
+    fn cert_identity_matches(
+        cert: &x509_cert::Certificate,
+        issuer: &str,
+        subject_pattern: &str,
+    ) -> bool {
+        let exts = match &cert.tbs_certificate.extensions {
+            Some(e) => e,
+            None => return false,
+        };
+        let mut san_ok = false;
+        let mut issuer_ok = false;
+        for ext in exts.iter() {
+            match ext.extn_id.to_string().as_str() {
+                "2.5.29.17" => {
+                    if let Ok(san) =
+                        x509_cert::ext::pkix::SubjectAltName::from_der(ext.extn_value.as_bytes())
+                    {
+                        for gn in san.0.iter() {
+                            if let x509_cert::ext::pkix::name::GeneralName::UniformResourceIdentifier(
+                                uri,
+                            ) = gn
+                            {
+                                if glob_match(subject_pattern, uri.as_str()) {
+                                    san_ok = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                "1.3.6.1.4.1.57264.1.1" => {
+                    if std::str::from_utf8(ext.extn_value.as_bytes())
+                        .map(|s| s == issuer)
+                        .unwrap_or(false)
+                    {
+                        issuer_ok = true;
+                    }
+                }
+                "1.3.6.1.4.1.57264.1.8" => {
+                    if let Ok(s) = der::asn1::Utf8StringRef::from_der(ext.extn_value.as_bytes()) {
+                        if s.as_str() == issuer {
+                            issuer_ok = true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        san_ok && issuer_ok
+    }
+
+    /// Minimal glob: `*` matches any run of characters. Registry signer
+    /// patterns only ever use `*`.
+    pub fn glob_match(pattern: &str, value: &str) -> bool {
+        fn rec(p: &[u8], v: &[u8]) -> bool {
+            if p.is_empty() {
+                return v.is_empty();
+            }
+            if p[0] == b'*' {
+                let mut i = 1;
+                while i < p.len() && p[i] == b'*' {
+                    i += 1;
+                }
+                let rest = &p[i..];
+                if rest.is_empty() {
+                    return true;
+                }
+                for k in 0..=v.len() {
+                    if rec(rest, &v[k..]) {
+                        return true;
+                    }
+                }
+                false
+            } else if !v.is_empty() && p[0] == v[0] {
+                rec(&p[1..], &v[1..])
+            } else {
+                false
+            }
+        }
+        rec(pattern.as_bytes(), value.as_bytes())
+    }
+
+    /// SPKI DER for an ed25519 raw public key (RFC 8410 prefix + key).
+    #[cfg(test)]
+    pub fn ed25519_spki(pubkey: &[u8; 32]) -> Vec<u8> {
+        let mut der = vec![
+            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+        ];
+        der.extend_from_slice(pubkey);
+        der
+    }
+}
+
+#[cfg(test)]
+mod sig_tests {
+    use super::sigverify::{ed25519_spki, glob_match, verify_against, Sidecar};
+    use super::TrustedIdentity;
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn raw_id(spki: Vec<u8>) -> TrustedIdentity {
+        TrustedIdentity::RawPublicKey {
+            algorithm: "ed25519".into(),
+            spki_der: spki,
+            label: "test".into(),
+        }
+    }
+
+    #[test]
+    fn raw_ed25519_verifies_and_rejects_tamper() {
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let body = b"registry entry bytes";
+        let sig = sk.sign(body).to_bytes().to_vec();
+        let sidecar = Sidecar::parse(B64.encode(&sig).as_bytes()).unwrap();
+        let id = raw_id(ed25519_spki(&sk.verifying_key().to_bytes()));
+        assert!(verify_against(&id, body, &sidecar));
+        assert!(!verify_against(&id, b"different bytes", &sidecar));
+    }
+
+    #[test]
+    fn glob_matches_workflow_subjects() {
+        assert!(glob_match("https://github.com/org/*/.github/*", "https://github.com/org/repo/.github/workflows/sign.yml"));
+        assert!(!glob_match("https://github.com/org/*", "https://evil.example/org/x"));
     }
 }
