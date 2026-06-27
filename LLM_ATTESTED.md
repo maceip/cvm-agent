@@ -957,3 +957,4 @@ an application on top of attested TLS:
 
 That keeps Cvm's core invariant clean: the quote proves the running gateway
 code. The LLM product proves what that gateway observed and signed.
+
