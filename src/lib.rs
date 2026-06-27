@@ -7,4 +7,5 @@ pub mod net;
 pub mod quote;
 pub mod registry;
 pub mod tee;
+pub mod tool_gate;
 pub mod value_x;

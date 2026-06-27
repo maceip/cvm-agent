@@ -30,6 +30,7 @@
 //!   4. Optionally verifies CT against a git repo
 //!   5. Optionally verifies A against a local artifact
 
+mod cmd_tool;
 mod eat;
 mod net;
 mod quote;
@@ -72,6 +73,11 @@ fn main() -> anyhow::Result<()> {
             }
         }
         "merge" => cmd_merge(&args[2..]),
+        "tool" => {
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| anyhow::anyhow!("tokio runtime: {e}"))?;
+            rt.block_on(cmd_tool::cmd_tool(&args[2..]))
+        }
         _ => {
             print_usage();
             std::process::exit(1);
@@ -91,6 +97,7 @@ fn print_usage() {
     eprintln!("  {bin} enclave <source-dir> [--cmd \"...\"]  (Nitro: build+serve in one)");
     eprintln!("  {bin} proxy   --cid <enclave-cid> [--acme]  (parent: TCP:443 → vsock + ACME)");
     eprintln!("  {bin} merge   <att1.json> <att2.json> [...] --output merged.json");
+    eprintln!("  {bin} tool    send-email --to <email|name> --kt-log-pub HEX …  (eat-pass gated mail)");
 }
 
 fn cli_name() -> String {

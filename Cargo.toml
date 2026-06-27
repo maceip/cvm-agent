@@ -24,6 +24,10 @@ path = "src/bin/llm-capture-daemon.rs"
 name = "llmattest"
 path = "src/bin/llmattest.rs"
 
+[[bin]]
+name = "tool-gate"
+path = "src/bin/tool-gate.rs"
+
 [features]
 default = ["nitro", "sev-snp", "tdx"]
 nitro = ["dep:serde_cbor", "dep:aws-nitro-enclaves-nsm-api", "dep:rsa", "dep:aes", "dep:cbc"]
@@ -34,7 +38,9 @@ tdx = []
 # The stack base: cvm-agent gates privilege on receipts in the unified-quote
 # format and verifies them with the unified-quote verifier. Real dependency on
 # the base layer (see examples/mesh.rs) — this is the mesh.
-unified-quote = { git = "https://github.com/maceip/unified-quote", package = "unified-quote" }
+unified-quote = { git = "https://github.com/maceip/unified-quote", tag = "v0.1.4", package = "unified-quote" }
+eat-pass-core = { path = "../eat-pass/core" }
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 
 # Core
 sha2 = "0.10"
@@ -66,7 +72,7 @@ aes = { version = "0.8", optional = true }
 cbc = { version = "0.1", features = ["std", "block-padding"], optional = true }
 
 # AMD KDS cert fetch
-reqwest = { version = "0.12", features = ["blocking", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"], default-features = false }
 
 # ACME (Let's Encrypt TLS-ALPN-01)
 instant-acme = "0.8"
