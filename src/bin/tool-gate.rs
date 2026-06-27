@@ -216,7 +216,7 @@ async fn email_send(stream: &mut HttpConn, state: Arc<ToolGateState>, req: HttpR
         }
     };
 
-    let redemption = email_redemption_context(&to_resolved, &body.subject, &body.body);
+    let redemption = email_redemption_context(body.to.trim(), &body.subject, &body.body);
     let challenge = TokenChallenge::new(state.gate.issuer_name(), state.gate.origin_info())
         .with_redemption_context(redemption);
 
