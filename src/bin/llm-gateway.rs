@@ -128,11 +128,19 @@ async fn main() -> Result<()> {
     );
     let manifest_hash = manifest.hash().context("hash manifest")?;
     let ra_claim = if cfg.assurance == "attested" {
+        // Attested means the gateway proves its own CVM capture path: a real
+        // receipt is mandatory and the advertised measurement must be a real
+        // value_x — it may not claim "attested" with a placeholder identity.
         let receipt = cfg.cvm_receipt_body.as_deref().ok_or_else(|| {
             anyhow!(
                 "attested assurance requires --cvm-receipt so the gateway can prove its capture path"
             )
         })?;
+        if cfg.value_x.trim().is_empty() || cfg.value_x == "unknown" {
+            return Err(anyhow!(
+                "attested assurance requires a real --value-x (or CVM_VALUE_X); refusing to advertise 'unknown'"
+            ));
+        }
         Some(
             build_capture_ra_claim(
                 &manifest,
@@ -723,15 +731,13 @@ fn parse_args() -> Result<Config> {
                 i += 1;
                 value_x = arg_value(&args, i, "--value-x")?;
             }
-            "--cvm-receipt-hash" => {
-                i += 1;
-                cvm_receipt_hash = arg_value(&args, i, "--cvm-receipt-hash")?;
-            }
             "--cvm-receipt" => {
                 i += 1;
                 let path = PathBuf::from(arg_value(&args, i, "--cvm-receipt")?);
                 let bytes = std::fs::read(&path)
                     .with_context(|| format!("read receipt {}", path.display()))?;
+                // The advertised hash is always derived from the real receipt
+                // bytes — it cannot be set independently of the evidence.
                 cvm_receipt_hash = sha256_prefixed(&bytes);
                 cvm_receipt_body = Some(bytes);
             }
@@ -810,8 +816,13 @@ fn parse_args() -> Result<Config> {
         i += 1;
     }
 
+    // Fail closed on the one real footgun: no hardcoded dev API key is shipped,
+    // so an operator must declare at least one team explicitly. (Attested-mode
+    // receipt/measurement requirements are enforced at startup.)
     if teams.is_empty() {
-        teams.insert("llma_dev".to_string(), "team_dev".to_string());
+        return Err(anyhow!(
+            "at least one --team team_id:api_key is required (no default dev key is shipped)"
+        ));
     }
 
     let gateway_base_url = default_gateway_base_url(&listen);
@@ -905,7 +916,8 @@ fn print_usage() {
     eprintln!("llm-gateway - attested LLM proxy and contest event logger");
     eprintln!();
     eprintln!("Usage:");
-    eprintln!("  llm-gateway [--listen 127.0.0.1:8088] [--team team_id:api_key]");
+    eprintln!("  llm-gateway --team team_id:api_key [--listen 127.0.0.1:8088]");
+    eprintln!("  (at least one --team is required; no default dev key is shipped)");
     eprintln!();
     eprintln!("Important options:");
     eprintln!("  --upstream https://provider.example");
@@ -923,7 +935,7 @@ fn print_usage() {
     eprintln!("  --start-url https://events.example/e/<event>/join");
     eprintln!("  --event-sink-url https://events.example/e/<event>/events");
     eprintln!("  --capture-method gateway_proxy");
-    eprintln!("  --assurance routed");
+    eprintln!("  --assurance routed|attested  (attested requires --cvm-receipt + real --value-x)");
     eprintln!("  --events ./llm-events.cborl");
     eprintln!("  --rate-state ./llm-gateway-rate-state.json  (deprecated compatibility; governor is in-process)");
     eprintln!("  --max-connections 512");

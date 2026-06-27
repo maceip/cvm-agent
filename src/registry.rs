@@ -60,6 +60,9 @@ pub struct Entry {
 }
 
 /// Result of looking up a Value X in the registry.
+// `Found` is the common, short-lived result; boxing it to shrink the rare
+// `Unknown` variant would add a heap allocation on the hot path for no benefit.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Lookup {
     /// Entry found and signature verified (or signature verification skipped).
@@ -544,12 +547,9 @@ mod sigverify {
                     }
                 }
                 "1.3.6.1.4.1.57264.1.1" => {
-                    if std::str::from_utf8(ext.extn_value.as_bytes())
+                    issuer_ok |= std::str::from_utf8(ext.extn_value.as_bytes())
                         .map(|s| s == issuer)
-                        .unwrap_or(false)
-                    {
-                        issuer_ok = true;
-                    }
+                        .unwrap_or(false);
                 }
                 "1.3.6.1.4.1.57264.1.8" => {
                     if let Ok(s) = der::asn1::Utf8StringRef::from_der(ext.extn_value.as_bytes()) {
