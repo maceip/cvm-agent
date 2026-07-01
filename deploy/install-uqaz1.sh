@@ -20,6 +20,7 @@ EAT_PASS="$HOME/eat-pass-src"
 CVM="$HOME/cvm-agent-src"
 UQ="$HOME/unified-quote/target/release/uq"
 MEAS="${ALLOW_MEASUREMENT:?}"
+POLICY="$STACK/attester-policy.json"
 
 mkdir -p "$STACK"
 
@@ -35,8 +36,19 @@ else
   git -C "$CVM" pull --ff-only origin main
 fi
 
-echo "=== building eat-pass ==="
-( cd "$EAT_PASS" && cargo build --release )
+echo "=== PoMFRIT native toolchain (gcc-14, meson/ninja via pipx) ==="
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v g++-14 >/dev/null; then
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -qq -y \
+    build-essential gcc-14 g++-14 git libclang-dev python3 pipx
+fi
+if ! command -v meson >/dev/null || [[ "$(meson --version)" < "1.7" ]]; then
+  pipx install meson ninja
+fi
+
+echo "=== building eat-pass (PoMFRIT native deps + release) ==="
+( cd "$EAT_PASS" && bash scripts/build-pomfrit-deps.sh && cargo build --release )
 
 echo "=== building tool-gate + cvm ==="
 ( cd "$CVM" && cargo build --release --bin tool-gate --bin cvm )
@@ -61,9 +73,13 @@ if [[ ! -f "$STACK/tool-gate.crt" ]]; then
   chmod 600 "$STACK/tool-gate.key"
 fi
 
+bash "$CVM/deploy/gen-eat-pass-policy.sh" --measurement "$MEAS" --gate azure \
+  --id uqaz1-azure --out "$POLICY"
+"$EAT" policy validate --file "$POLICY"
+
 export EATPASS_ATTESTER_SEED
 if [[ ! -f "$STACK/attester.pub" ]]; then
-  "$EAT" attester --gate azure --allow "$MEAS" --listen 127.0.0.1:18087 --insecure-http &
+  "$EAT" attester --gate azure --policy "$POLICY" --listen 127.0.0.1:18087 --insecure-http &
   ap=$!
   sleep 2
   curl -sf http://127.0.0.1:18087/pubkey | python3 -c "import json,sys; print(json.load(sys.stdin)['pubkey'])" > "$STACK/attester.pub"
@@ -110,7 +126,7 @@ After=network-online.target
 
 [Service]
 EnvironmentFile=%h/tool-gate-stack/seeds.env
-ExecStart=${EAT} attester --gate azure --allow ${MEAS} --listen 127.0.0.1:8087 --insecure-http
+ExecStart=${EAT} attester --gate azure --policy ${POLICY} --listen 127.0.0.1:8087 --insecure-http
 Restart=on-failure
 
 [Install]

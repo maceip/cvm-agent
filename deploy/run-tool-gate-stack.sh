@@ -27,14 +27,42 @@ source "$ENV_FILE"
 
 EAT_PASS_BIN="${EAT_PASS_BIN:-$(command -v eat-pass 2>/dev/null || echo "$ROOT/../eat-pass/target/release/eat-pass")}"
 TOOL_GATE_BIN="${TOOL_GATE_BIN:-$(command -v tool-gate 2>/dev/null || echo "$ROOT/target/release/tool-gate")}"
+GEN_POLICY="$ROOT/deploy/gen-eat-pass-policy.sh"
 
-for var in EATPASS_ATTESTER_SEED EATPASS_KT_SEED ATTESTER_PUB KT_LOG_PUB ALLOW_VALUE_X \
+for var in EATPASS_ATTESTER_SEED EATPASS_KT_SEED ATTESTER_PUB KT_LOG_PUB \
   TOOL_GATE_SMTP_HOST TOOL_GATE_SMTP_USER TOOL_GATE_IMAP_PASSWORD TOOL_GATE_FROM; do
   if [[ -z "${!var:-}" ]]; then
     echo "set $var in $ENV_FILE" >&2
     exit 1
   fi
 done
+
+POLICY_FILE="${POLICY_FILE:-}"
+if [[ -z "$POLICY_FILE" ]]; then
+  if [[ -z "${ALLOW_VALUE_X:-}" && -z "${REGISTRY_ENTRY:-}" ]]; then
+    echo "set POLICY_FILE, or ALLOW_VALUE_X (SNP launch measurement hex), or REGISTRY_ENTRY in $ENV_FILE" >&2
+    exit 1
+  fi
+  POLICY_FILE="${POLICY_DIR:-$ROOT/deploy/policies}/.generated-tool-gate.json"
+  if [[ -n "${REGISTRY_ENTRY:-}" ]]; then
+    "$GEN_POLICY" --registry "$REGISTRY_ENTRY" --gate "${ATTESTER_GATE:-azure}" \
+      --id "${POLICY_ID:-tool-gate-local}" --out "$POLICY_FILE"
+  else
+    "$GEN_POLICY" --measurement "$ALLOW_VALUE_X" --gate "${ATTESTER_GATE:-azure}" \
+      --id "${POLICY_ID:-tool-gate-local}" --out "$POLICY_FILE"
+  fi
+fi
+
+if [[ ! -f "$POLICY_FILE" ]]; then
+  echo "policy file not found: $POLICY_FILE" >&2
+  exit 1
+fi
+
+if [[ -x "$EAT_PASS_BIN" ]]; then
+  "$EAT_PASS_BIN" policy validate --file "$POLICY_FILE"
+else
+  echo "warning: eat-pass not built; skipping policy validate" >&2
+fi
 
 LISTEN_ATTESTER="${LISTEN_ATTESTER:-127.0.0.1:8087}"
 LISTEN_ISSUER="${LISTEN_ISSUER:-127.0.0.1:8088}"
@@ -56,6 +84,7 @@ else
 fi
 
 export EATPASS_ATTESTER_SEED EATPASS_KT_SEED
+export EATPASS_POLICY_TRUSTED_PUB="${EATPASS_POLICY_TRUSTED_PUB:-}"
 export TOOL_GATE_SMTP_HOST TOOL_GATE_SMTP_USER TOOL_GATE_IMAP_PASSWORD TOOL_GATE_FROM
 export TOOL_GATE_CONTACT_RYAN TOOL_GATE_ALLOWED_TO TOOL_GATE_DRY_RUN
 
@@ -72,8 +101,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "starting eat-pass attester on $LISTEN_ATTESTER"
-"$EAT_PASS_BIN" attester --gate azure --allow "$ALLOW_VALUE_X" \
+echo "starting eat-pass attester on $LISTEN_ATTESTER (policy=$POLICY_FILE)"
+"$EAT_PASS_BIN" attester --gate "${ATTESTER_GATE:-azure}" --policy "$POLICY_FILE" \
   --listen "$LISTEN_ATTESTER" "${TLS_ARGS[@]}" &
 PIDS+=($!)
 

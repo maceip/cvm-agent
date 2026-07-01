@@ -96,6 +96,7 @@ async fn cmd_send_email(args: &[String]) -> Result<()> {
 
     let minted = mint_email_send_token(
         &MintConfig {
+            gate_url: gate.clone(),
             issuer_url: issuer,
             attester_url: attester,
             issuer_name,

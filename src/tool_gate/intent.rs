@@ -4,10 +4,21 @@ use sha2::{Digest, Sha256};
 
 const EMAIL_INTENT_DOMAIN: &[u8] = b"cvm/tool-gate/email/v1\0";
 
-/// 32-byte redemption context for a specific email send intent.
+/// 32-byte redemption context for a specific email send intent (legacy deterministic).
 pub fn email_redemption_context(to: &str, subject: &str, body: &str) -> [u8; 32] {
+    email_redemption_context_bound(&[0u8; 32], to, subject, body)
+}
+
+/// Server-issued nonce + intent (Hanff CCS 2025 freshness at tool-gate).
+pub fn email_redemption_context_bound(
+    server_nonce: &[u8; 32],
+    to: &str,
+    subject: &str,
+    body: &str,
+) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(EMAIL_INTENT_DOMAIN);
+    h.update(server_nonce);
     h.update(to.as_bytes());
     h.update([0u8]);
     h.update(subject.as_bytes());

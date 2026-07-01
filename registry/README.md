@@ -60,3 +60,24 @@ signs. An entry with no sidecar is `Missing` (informational only).
 
 Clients set their own acceptance policy. The registry is the source of
 truth; what to do with it is local.
+
+## eat-pass attester policy (VerificationPolicy)
+
+The tool-gate / eat-pass attester uses operator JSON policy for mint authorization.
+Keep registry entries and attester policy aligned:
+
+| Registry field | eat-pass policy `allow[]` |
+|----------------|---------------------------|
+| `platform_measurements.snp_measurement` | `measurement` |
+| `platform_measurements.tdx_mrtd` | `measurement` |
+| `status` | `registry_status` |
+
+Generate from registry:
+
+```bash
+./deploy/gen-eat-pass-policy.sh --registry registry/<prefix>.json --out policy.json
+```
+
+Trust-boundary notes (Galanou CVM SoK, Rezabek Proof of Cloud): document in
+`notes` that MAA verifies quotes, launch measurement is the policy key, and
+quotes do not prove physical location. See `deploy/STACK-POLICY.md`.

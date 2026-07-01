@@ -24,8 +24,20 @@ pub struct AuthorizeBody {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct AppraisalWire {
+    pub pass: bool,
+    pub policy_id: String,
+    pub class_label: String,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct AuthorizeResponse {
     pub authorization_b64: String,
+    /// EAR-shaped appraisal from attester (Fossati draft-ietf-rats-ear).
+    #[serde(default)]
+    pub appraisal: Option<AppraisalWire>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

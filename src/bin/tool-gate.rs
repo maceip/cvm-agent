@@ -6,10 +6,10 @@ use cvm_agent::http_service::{
     CorsHeaders, HandlerFuture, HttpRequest, HttpServerConfig,
 };
 use cvm_agent::tool_gate::{
-    email_redemption_context, EmailSendRequest, EmailSendResponse, EatPassGate, GateReject,
-    Mailer, SmtpConfig, ToolChallengeInfo, TOOL_EMAIL_SEND,
+    EmailSendRequest, EmailSendResponse, EatPassGate, GateReject, Mailer, SmtpConfig,
+    ToolChallengeInfo, TOOL_EMAIL_SEND,
 };
-use eat_pass_core::TokenChallenge;
+use eat_pass_core::http;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -145,15 +145,40 @@ async fn handle_request(
             )
             .await
         }
-        ("GET", path) if path == "/.well-known/eat-pass/challenge" || path == TOOL_EMAIL_SEND => {
-            challenge_response(stream, &state).await
+        ("GET", path) if path.starts_with("/.well-known/eat-pass/challenge") => {
+            challenge_response(stream, &state, &req.path).await
         }
+        ("GET", TOOL_EMAIL_SEND) => challenge_response(stream, &state, &req.path).await,
         ("POST", TOOL_EMAIL_SEND) => email_send(stream, state, req).await,
         _ => write_json(stream, 404, &serde_json::json!({"error": "not found"})).await,
     }
 }
 
-async fn challenge_response(stream: &mut HttpConn, state: &Arc<ToolGateState>) -> Result<()> {
+async fn challenge_response(
+    stream: &mut HttpConn,
+    state: &Arc<ToolGateState>,
+    path_and_query: &str,
+) -> Result<()> {
+    let (to, subject, body) = match challenge_query(path_and_query) {
+        Some(q) => q,
+        None => {
+            return write_json(
+                stream,
+                400,
+                &serde_json::json!({
+                    "error": "challenge requires query params: to, subject, body",
+                    "example": "/.well-known/eat-pass/challenge?to=a@b.c&subject=hi&body=hello"
+                }),
+            )
+            .await;
+        }
+    };
+
+    let (challenge, www) = state
+        .gate
+        .issue_email_challenge(&to, &subject, &body)
+        .map_err(|e| anyhow::anyhow!("issue challenge: {e}"))?;
+
     let info = ToolChallengeInfo {
         tool: "email.send".into(),
         issuer_name: state.gate.issuer_name().into(),
@@ -162,15 +187,11 @@ async fn challenge_response(stream: &mut HttpConn, state: &Arc<ToolGateState>) -
         redeemer_url: state.gate.redeemer_url().into(),
         kt_log_pub: state.gate.kt_log_pub_hex(),
         attester_url: state.attester_url.clone(),
-        note: "Mint a PrivateToken whose challenge binds to sha256(to|subject|body). \
-               One token sends exactly one email. The IMAP/SMTP password never leaves this gate."
+        note: "Mint a PrivateToken whose challenge binds to this email intent + gate nonce. \
+               Fetch this URL before minting; POST the token to /v1/tools/email.send with the same to/subject/body."
             .into(),
     };
-    let sample = TokenChallenge::new(state.gate.issuer_name(), state.gate.origin_info());
-    let www = state
-        .gate
-        .www_authenticate_for(&sample)
-        .unwrap_or_else(|_| "PrivateToken".into());
+
     write_response_with_headers(
         stream,
         401,
@@ -181,10 +202,31 @@ async fn challenge_response(stream: &mut HttpConn, state: &Arc<ToolGateState>) -
                 "x-tool-gate-proof".into(),
                 "attested-build + eat-pass token required".into(),
             ),
+            (
+                "x-challenge-digest".into(),
+                hex::encode(challenge.digest()),
+            ),
         ],
         serde_json::to_vec(&info)?,
     )
     .await
+}
+
+fn challenge_query(path_and_query: &str) -> Option<(String, String, String)> {
+    let fake = format!("http://tool-gate.local{path_and_query}");
+    let url = reqwest::Url::parse(&fake).ok()?;
+    let mut to = None;
+    let mut subject = None;
+    let mut body = None;
+    for (k, v) in url.query_pairs() {
+        match k.as_ref() {
+            "to" => to = Some(v.into_owned()),
+            "subject" => subject = Some(v.into_owned()),
+            "body" => body = Some(v.into_owned()),
+            _ => {}
+        }
+    }
+    Some((to?, subject?, body?))
 }
 
 async fn email_send(stream: &mut HttpConn, state: Arc<ToolGateState>, req: HttpRequest) -> Result<()> {
@@ -216,18 +258,27 @@ async fn email_send(stream: &mut HttpConn, state: Arc<ToolGateState>, req: HttpR
         }
     };
 
-    let redemption = email_redemption_context(body.to.trim(), &body.subject, &body.body);
-    let challenge = TokenChallenge::new(state.gate.issuer_name(), state.gate.origin_info())
-        .with_redemption_context(redemption);
-
-    let auth = req
+    let _auth = req
         .headers
         .get("authorization")
         .map(|s| s.as_str());
 
+    let token = match _auth.and_then(|h| http::parse_authorization(h).ok()) {
+        Some(t) => t,
+        None => {
+            return challenge_response(stream, &state, &format!(
+                "{TOOL_EMAIL_SEND}?to={}&subject={}&body={}",
+                url_encode(body.to.trim()),
+                url_encode(&body.subject),
+                url_encode(&body.body),
+            ))
+            .await;
+        }
+    };
+
     match state
         .gate
-        .verify_and_spend(auth, &challenge)
+        .verify_and_spend(_auth, &token.challenge_digest)
         .await
     {
         Ok(nonce) => {
@@ -249,7 +300,27 @@ async fn email_send(stream: &mut HttpConn, state: Arc<ToolGateState>, req: HttpR
             write_json(stream, 200, &resp).await
         }
         Err(GateReject::MissingToken) | Err(GateReject::Malformed(_)) => {
-            challenge_response(stream, &state).await
+            challenge_response(
+                stream,
+                &state,
+                &format!(
+                    "{TOOL_EMAIL_SEND}?to={}&subject={}&body={}",
+                    url_encode(body.to.trim()),
+                    url_encode(&body.subject),
+                    url_encode(&body.body),
+                ),
+            )
+            .await
+        }
+        Err(GateReject::UnknownChallenge) => {
+            write_json(
+                stream,
+                403,
+                &serde_json::json!({
+                    "error": "token challenge unknown or expired — fetch GET /.well-known/eat-pass/challenge with the same to/subject/body before minting"
+                }),
+            )
+            .await
         }
         Err(GateReject::InvalidToken(e)) => {
             write_json(stream, 403, &serde_json::json!({"error": e})).await
@@ -293,9 +364,18 @@ fn landing_html() -> &'static str {
 <h1>tool-gate</h1>
 <p>The <strong>IMAP/SMTP mailbox password lives here</strong> — not in your agent, not in the LLM, not in env vars on the CVM client.</p>
 <p>An attested agent mints a one-time <code>PrivateToken</code> (eat-pass) bound to the exact email intent, spends it here, and this gate sends the mail.</p>
-<p class="dim">Tool: <code>POST /v1/tools/email.send</code> · Challenge: <code>GET /.well-known/eat-pass/challenge</code></p>
+<p class="dim">Tool: <code>POST /v1/tools/email.send</code> · Challenge: <code>GET /.well-known/eat-pass/challenge?to=&amp;subject=&amp;body=</code></p>
 <p class="dim">Agent: <code>cvm tool send-email --to ryan --subject "…" --body "…"</code></p>
 </body></html>"#
+}
+
+fn url_encode(s: &str) -> String {
+    let mut url = reqwest::Url::parse("http://local/").expect("base url");
+    url.query_pairs_mut().append_pair("q", s);
+    url.query()
+        .and_then(|q| q.strip_prefix("q="))
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| s.to_string())
 }
 
 struct Config {

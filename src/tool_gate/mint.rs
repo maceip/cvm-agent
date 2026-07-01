@@ -4,10 +4,10 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use eat_pass_core::transparency::{verify_inclusion, verify_log};
 use eat_pass_core::{http, Client, IssuerPublicKey, SignResponse, TokenChallenge, Token};
 
-use crate::tool_gate::intent::email_redemption_context;
 use crate::tool_gate::wire::{AuthorizeBody, AuthorizeResponse, KtResponse, SignBody};
 
 pub struct MintConfig {
+    pub gate_url: String,
     pub issuer_url: String,
     pub attester_url: String,
     pub issuer_name: String,
@@ -21,6 +21,7 @@ pub struct MintedToolToken {
     pub token: Token,
     pub authorization_header: String,
     pub binding_hex: String,
+    pub challenge_digest_hex: String,
 }
 
 pub async fn mint_email_send_token(
@@ -30,12 +31,16 @@ pub async fn mint_email_send_token(
     body: &str,
 ) -> anyhow::Result<MintedToolToken> {
     let http = http_client(cfg.insecure_tls)?;
+    let gate_base = cfg.gate_url.trim_end_matches('/');
     let issuer_base = cfg.issuer_url.trim_end_matches('/');
     let attester_base = cfg.attester_url.trim_end_matches('/');
 
-    let redemption = email_redemption_context(to, subject, body);
-    let challenge = TokenChallenge::new(&cfg.issuer_name, &cfg.origin_info)
-        .with_redemption_context(redemption);
+    let challenge = fetch_email_challenge(&http, gate_base, to, subject, body).await?;
+    eprintln!(
+        "[cvm tool] gate challenge digest={} redemption_context={}",
+        hex::encode(challenge.digest()),
+        challenge.has_redemption_context()
+    );
 
     let pk: IssuerPublicKey = http
         .get(format!("{issuer_base}/keys"))
@@ -77,6 +82,16 @@ pub async fn mint_email_send_token(
         .json()
         .await?;
 
+    if let Some(ref appraisal) = auth_resp.appraisal {
+        eprintln!(
+            "[cvm tool] attester appraisal pass={} policy={} class={}",
+            appraisal.pass, appraisal.policy_id, appraisal.class_label
+        );
+        if let Some(n) = &appraisal.notes {
+            eprintln!("[cvm tool]   notes: {n}");
+        }
+    }
+
     let sign_resp: SignResponse = http
         .post(format!("{issuer_base}/sign"))
         .json(&SignBody {
@@ -98,8 +113,38 @@ pub async fn mint_email_send_token(
     Ok(MintedToolToken {
         authorization_header: http::authorization(&token),
         binding_hex: hex::encode(binding),
+        challenge_digest_hex: hex::encode(token.challenge_digest),
         token,
     })
+}
+
+async fn fetch_email_challenge(
+    http: &reqwest::Client,
+    gate_base: &str,
+    to: &str,
+    subject: &str,
+    body: &str,
+) -> anyhow::Result<TokenChallenge> {
+    let mut url = reqwest::Url::parse(&format!("{gate_base}/.well-known/eat-pass/challenge"))
+        .map_err(|e| anyhow::anyhow!("gate url: {e}"))?;
+    url.query_pairs_mut()
+        .append_pair("to", to)
+        .append_pair("subject", subject)
+        .append_pair("body", body);
+    let r = http.get(url.clone()).send().await?;
+    if r.status() != reqwest::StatusCode::UNAUTHORIZED {
+        anyhow::bail!(
+            "expected 401 challenge from gate at {}, got {}",
+            url,
+            r.status()
+        );
+    }
+    let hdr = r
+        .headers()
+        .get("www-authenticate")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| anyhow::anyhow!("gate challenge missing WWW-Authenticate"))?;
+    http::parse_www_authenticate(hdr).map_err(|e| anyhow::anyhow!("parse gate challenge: {e}"))
 }
 
 fn http_client(insecure_tls: bool) -> anyhow::Result<reqwest::Client> {
