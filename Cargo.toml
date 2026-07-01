@@ -36,10 +36,11 @@ tdx = []
 
 [dependencies]
 # The stack base: cvm-agent gates privilege on receipts in the unified-quote
-# format and verifies them with the unified-quote verifier. Real dependency on
-# the base layer (see examples/mesh.rs) — this is the mesh.
-unified-quote = { git = "https://github.com/maceip/unified-quote", tag = "v0.1.4", package = "unified-quote" }
+# format and verifies them with the unified-quote verifier. Pinned to the same
+# hardened commit as the rest of tee-stack.
+unified-quote = { git = "https://github.com/maceip/unified-quote", rev = "fb4bb069528b1a5d586c10332693334e48e76a1c", package = "unified-quote", features = ["desktop"] }
 eat-pass-core = { path = "../eat-pass/core" }
+eat-pass-cli = { path = "../eat-pass/cli", default-features = false }
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 
 # Core

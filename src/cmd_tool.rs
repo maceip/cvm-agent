@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use cvm_agent::tool_gate::{mint_email_send_token, EmailSendRequest, MintConfig, TOOL_EMAIL_SEND};
+use eat_pass_cli::client::{EvidenceInput, DEFAULT_UQ_COLLECT_CMD};
 
 pub async fn cmd_tool(args: &[String]) -> Result<()> {
     if args.is_empty() {
@@ -27,7 +28,8 @@ async fn cmd_send_email(args: &[String]) -> Result<()> {
     let mut issuer_name = "issuer.eat-pass.dev".to_string();
     let mut origin_info = "tool-gate.secure.build/v1/tools/email.send".to_string();
     let mut kt_log_pub = String::new();
-    let mut uq_collect = "sudo uq azure collect".to_string();
+    let mut evidence = None;
+    let mut uq_collect = None;
     let mut insecure_tls = false;
 
     let mut i = 0;
@@ -69,9 +71,13 @@ async fn cmd_send_email(args: &[String]) -> Result<()> {
                 i += 1;
                 kt_log_pub = args.get(i).context("--kt-log-pub")?.clone();
             }
+            "--evidence" => {
+                i += 1;
+                evidence = Some(args.get(i).context("--evidence")?.clone());
+            }
             "--uq-collect" => {
                 i += 1;
-                uq_collect = args.get(i).context("--uq-collect")?.clone();
+                uq_collect = Some(args.get(i).context("--uq-collect")?.clone());
             }
             "--insecure-tls" => insecure_tls = true,
             "--help" | "-h" => {
@@ -94,6 +100,12 @@ async fn cmd_send_email(args: &[String]) -> Result<()> {
     eprintln!("[cvm tool] minting eat-pass capability for email intent…");
     eprintln!("[cvm tool]   to={to} subject={subject:?}");
 
+    let evidence = evidence
+        .map(|path| EvidenceInput::File(path.into()))
+        .unwrap_or_else(|| EvidenceInput::AzureCommand {
+            cmd: uq_collect.unwrap_or_else(|| DEFAULT_UQ_COLLECT_CMD.into()),
+        });
+
     let minted = mint_email_send_token(
         &MintConfig {
             gate_url: gate.clone(),
@@ -102,7 +114,7 @@ async fn cmd_send_email(args: &[String]) -> Result<()> {
             issuer_name,
             origin_info,
             kt_log_pub: kt,
-            uq_collect_cmd: uq_collect,
+            evidence,
             insecure_tls,
         },
         &to,
@@ -116,11 +128,7 @@ async fn cmd_send_email(args: &[String]) -> Result<()> {
 
     let gate_base = gate.trim_end_matches('/');
     let url = format!("{gate_base}{TOOL_EMAIL_SEND}");
-    let req_body = EmailSendRequest {
-        to,
-        subject,
-        body,
-    };
+    let req_body = EmailSendRequest { to, subject, body };
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(insecure_tls)
@@ -164,7 +172,7 @@ fn print_send_email_usage() {
          \n\
            cvm tool send-email --to ryan --subject \"Hi\" --body \"…\" \\\n\
              --kt-log-pub <64-hex> \\\n\
-             [--gate URL] [--issuer URL] [--attester URL] [--uq-collect CMD]\n\
+             [--gate URL] [--issuer URL] [--attester URL] [--evidence FILE|-] [--uq-collect CMD]\n\
          \n\
          Named contacts: TOOL_GATE_CONTACT_RYAN=ryan@example.com on the gate host."
     );

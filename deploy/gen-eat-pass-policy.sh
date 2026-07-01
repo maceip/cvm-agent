@@ -69,20 +69,20 @@ else
 fi
 
 case "$GATE" in
-  azure) PROFILE="azure-snp-bundle" ;;
-  azure-tls) PROFILE="azure-attested-tls" ;;
-  uq) PROFILE="uq-eat" ;;
-  android-key|android) PROFILE="android-key-attestation" ;;
-  ios-app-attest|ios) PROFILE="ios-app-attest" ;;
+  azure) PROFILE="azure-snp-bundle"; MIN_TIER="silicon-cvm" ;;
+  azure-tls) PROFILE="azure-attested-tls"; MIN_TIER="silicon-cvm" ;;
+  uq) PROFILE="uq-eat"; MIN_TIER="silicon-cvm" ;;
+  android-key|android) PROFILE="android-key-attestation"; MIN_TIER="device-attested" ;;
+  ios-app-attest|ios) PROFILE="ios-app-attest"; MIN_TIER="device-attested" ;;
   *) echo "unknown --gate $GATE" >&2; exit 1 ;;
 esac
 
 TRUST_NOTE="Azure CVM: MAA verifies guest quote; paravisor owns report_data. Quote proves launch measurement + guest binding, not physical location (Rezabek arXiv:2510.12469). Policy allow uses launch measurement only (Misiani SIGMETRICS 2025)."
 
 mkdir -p "$(dirname "$OUT")"
-python3 - "$OUT" "$POLICY_ID" "$PROFILE" "$MEAS" "$REGISTRY_STATUS" "$NOTES" "$TRUST_NOTE" <<'PY'
+python3 - "$OUT" "$POLICY_ID" "$PROFILE" "$MIN_TIER" "$MEAS" "$REGISTRY_STATUS" "$NOTES" "$TRUST_NOTE" <<'PY'
 import json, sys
-out, pid, profile, meas, reg_status, notes, trust = sys.argv[1:8]
+out, pid, profile, min_tier, meas, reg_status, notes, trust = sys.argv[1:9]
 doc = {
     "version": 1,
     "id": pid,
@@ -90,6 +90,7 @@ doc = {
     "evidence_profile": profile,
     "class": {"name": "accepted-builds", "version": 1},
     "registry_minimum": "recommended",
+    "min_tier": min_tier,
     "notes": f"{trust} Registry: {notes}".strip(),
     "allow": [{
         "measurement": meas.strip().lower(),

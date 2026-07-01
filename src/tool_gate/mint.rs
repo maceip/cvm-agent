@@ -1,8 +1,9 @@
 //! Agent-side eat-pass minting for a specific tool intent.
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use eat_pass_cli::client::{collect_evidence, EvidenceInput};
 use eat_pass_core::transparency::{verify_inclusion, verify_log};
-use eat_pass_core::{http, Client, IssuerPublicKey, SignResponse, TokenChallenge, Token};
+use eat_pass_core::{http, Client, IssuerPublicKey, SignResponse, Token, TokenChallenge};
 
 use crate::tool_gate::wire::{AuthorizeBody, AuthorizeResponse, KtResponse, SignBody};
 
@@ -13,7 +14,7 @@ pub struct MintConfig {
     pub issuer_name: String,
     pub origin_info: String,
     pub kt_log_pub: [u8; 32],
-    pub uq_collect_cmd: String,
+    pub evidence: EvidenceInput,
     pub insecure_tls: bool,
 }
 
@@ -67,7 +68,7 @@ pub async fn mint_email_send_token(
 
     let (req, pending) = Client::begin(&pk, &challenge, 1)?;
     let binding = req.binding();
-    let eat = collect_azure_eat(&cfg.uq_collect_cmd, &binding)?;
+    let eat = collect_evidence(&cfg.evidence, &binding)?;
 
     let auth_resp: AuthorizeResponse = http
         .post(format!("{attester_base}/authorize"))
@@ -152,29 +153,7 @@ fn http_client(insecure_tls: bool) -> anyhow::Result<reqwest::Client> {
     if insecure_tls {
         builder = builder.danger_accept_invalid_certs(true);
     }
-    builder.build().map_err(|e| anyhow::anyhow!("http client: {e}"))
-}
-
-fn collect_azure_eat(cmd: &str, binding: &[u8; 32]) -> anyhow::Result<Vec<u8>> {
-    let mut rnd = [0u8; 8];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut rnd);
-    let out = std::env::temp_dir().join(format!("cvm-tool-{}.json", hex::encode(rnd)));
-    let out_str = out.to_string_lossy();
-    let mut argv = cmd.split_whitespace().collect::<Vec<_>>();
-    if argv.is_empty() {
-        anyhow::bail!("uq collect command is empty");
-    }
-    let prog = argv.remove(0);
-    let binding_hex = hex::encode(binding);
-    let status = std::process::Command::new(prog)
-        .args(&argv)
-        .args(["--value-x", &binding_hex, "-o", &out_str])
-        .status()
-        .map_err(|e| anyhow::anyhow!("spawn `{cmd}`: {e}"))?;
-    if !status.success() {
-        anyhow::bail!("`{cmd}` failed with {status}");
-    }
-    let bytes = std::fs::read(&out)?;
-    let _ = std::fs::remove_file(&out);
-    Ok(bytes)
+    builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("http client: {e}"))
 }
